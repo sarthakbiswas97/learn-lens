@@ -21,6 +21,7 @@ dependencies = [
     "numpy>=2.0",
     "umap-learn>=0.5",
     "plotly>=6.0",
+    "einops>=0.8",
 ]
 
 [project.optional-dependencies]

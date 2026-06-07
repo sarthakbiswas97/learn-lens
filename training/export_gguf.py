@@ -30,7 +30,7 @@ def export_gguf(
     logger.info("Loading model: %s", model_id)
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        torch_dtype="auto",
+        dtype="auto",
         device_map="cpu",
         trust_remote_code=True,
     )

@@ -42,7 +42,7 @@ class PrioritizerModel:
         )
         base_model = AutoModelForCausalLM.from_pretrained(
             self._config.prioritizer_base_model_id,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             device_map="auto",
             trust_remote_code=True,
         )

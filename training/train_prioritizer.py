@@ -40,7 +40,7 @@ def train() -> None:
     # Load base model
     model = AutoModelForCausalLM.from_pretrained(
         "openbmb/MiniCPM5-1B",
-        torch_dtype="auto",
+        dtype="auto",
         device_map="auto",
         trust_remote_code=True,
     )
