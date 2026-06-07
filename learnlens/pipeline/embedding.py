@@ -13,7 +13,9 @@ from learnlens.storage.database import Database
 from learnlens.storage.queries import (
     get_all_content,
     get_all_embeddings,
+    get_content_by_id,
     get_items_without_interactions,
+    get_unembedded_content,
     insert_embedding,
 )
 
@@ -160,5 +162,4 @@ def cosine_similarity_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return a_norm @ b_norm.T
 
 
-# Re-export for use within this module
-from learnlens.storage.queries import get_content_by_id, get_unembedded_content  # noqa: E402
+

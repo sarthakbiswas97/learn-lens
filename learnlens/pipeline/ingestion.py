@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 import trafilatura
@@ -85,7 +86,7 @@ def ingest_url(url: str, db: Database) -> ContentItem | None:
         body_text=body_text,
         source_type="url",
         word_count=word_count,
-        ingested_at=__import__("datetime").datetime.now(),
+        ingested_at=datetime.now(),
     )
 
 

@@ -48,8 +48,8 @@ def insert_content(
     word_count: int | None,
     domain: str | None,
 ) -> int:
-    """Insert a content item. Returns the new row id."""
-    cursor = conn.execute(
+    """Insert a content item. Returns the row id (new or existing)."""
+    conn.execute(
         """
         INSERT INTO content (url, title, body_text, source_type, word_count, domain)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -62,7 +62,8 @@ def insert_content(
         (url, title, body_text, source_type, word_count, domain),
     )
     conn.commit()
-    return cursor.lastrowid or 0
+    row = conn.execute("SELECT id FROM content WHERE url = ?", (url,)).fetchone()
+    return row["id"] if row else 0
 
 
 def get_content_by_id(conn: sqlite3.Connection, content_id: int) -> ContentItem | None:
@@ -223,7 +224,22 @@ def get_unscored_content(conn: sqlite3.Connection, goal_id: int) -> list[Content
 def get_top_scored(conn: sqlite3.Connection, top_k: int = 10) -> list[ScoredItem]:
     rows = conn.execute(
         """
-        SELECT s.*, c.*, g.* FROM scores s
+        SELECT
+            s.score AS s_score,
+            s.rationale AS s_rationale,
+            s.suggested_action AS s_suggested_action,
+            c.id AS c_id,
+            c.url AS c_url,
+            c.title AS c_title,
+            c.body_text AS c_body_text,
+            c.source_type AS c_source_type,
+            c.word_count AS c_word_count,
+            c.ingested_at AS c_ingested_at,
+            g.id AS g_id,
+            g.goal_text AS g_goal_text,
+            g.priority AS g_priority,
+            g.is_active AS g_is_active
+        FROM scores s
         JOIN content c ON s.content_id = c.id
         JOIN goals g ON s.goal_id = g.id
         ORDER BY s.score DESC
@@ -234,26 +250,26 @@ def get_top_scored(conn: sqlite3.Connection, top_k: int = 10) -> list[ScoredItem
     scored_items = []
     for row in rows:
         content = ContentItem(
-            id=row["c.id"],
-            url=row["c.url"],
-            title=row["c.title"],
-            body_text=row["c.body_text"],
-            source_type=row["c.source_type"],
-            word_count=row["c.word_count"] or 0,
-            ingested_at=datetime.fromisoformat(row["c.ingested_at"]),
+            id=row["c_id"],
+            url=row["c_url"],
+            title=row["c_title"],
+            body_text=row["c_body_text"],
+            source_type=row["c_source_type"],
+            word_count=row["c_word_count"] or 0,
+            ingested_at=datetime.fromisoformat(row["c_ingested_at"]),
         )
         goal = Goal(
-            id=row["g.id"],
-            goal_text=row["g.goal_text"],
-            priority=row["g.priority"],
-            is_active=bool(row["g.is_active"]),
+            id=row["g_id"],
+            goal_text=row["g_goal_text"],
+            priority=row["g_priority"],
+            is_active=bool(row["g_is_active"]),
         )
         scored_items.append(
             ScoredItem(
                 content=content,
-                score=row["s.score"],
-                rationale=row["s.rationale"],
-                suggested_action=row["s.suggested_action"] or "",
+                score=row["s_score"],
+                rationale=row["s_rationale"],
+                suggested_action=row["s_suggested_action"] or "",
                 goal=goal,
             )
         )
