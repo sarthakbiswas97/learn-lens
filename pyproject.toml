@@ -1,0 +1,72 @@
+[project]
+name = "learnlens"
+version = "0.1.0"
+description = "AI learning mentor powered by 3 small models"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11,<3.13"
+authors = [
+    { name = "Sarthak Biswas" },
+]
+
+dependencies = [
+    "gradio>=5.0",
+    "transformers>=5.6",
+    "sentence-transformers>=4.1",
+    "torch>=2.7",
+    "peft>=0.15",
+    "pydantic>=2.12",
+    "trafilatura>=2.0",
+    "beautifulsoup4>=4.13",
+    "numpy>=2.0",
+    "umap-learn>=0.5",
+    "plotly>=6.0",
+]
+
+[project.optional-dependencies]
+training = [
+    "trl>=0.21",
+    "modal>=0.73",
+    "openai>=1.0",
+    "datasets>=3.0",
+    "accelerate>=1.0",
+    "bitsandbytes>=0.45",
+]
+dev = [
+    "pytest>=9.0",
+    "pytest-cov>=6.0",
+    "ruff>=0.15",
+]
+
+[project.scripts]
+learnlens = "learnlens.app:main"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=9.0",
+    "pytest-cov>=6.0",
+    "ruff>=0.15",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow tests (model loading)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["learnlens"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

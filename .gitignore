@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ruff_cache/
+
+# Virtual environment
+.venv/
+
+# Data (local only)
+data/
+*.db
+*.sqlite
+
+# Training artifacts
+training/data/
+training/output/
+*.gguf
+
+# Secrets
+.env
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# uv
+.python-version
