@@ -18,7 +18,7 @@ learnlens/
 │   │   ├── types.py                # Shared data types (frozen dataclasses)
 │   │   ├── connector.py            # nomic-embed-text-v1.5 (embedding)
 │   │   ├── prioritizer.py          # MiniCPM5-1B + LoRA (scoring)
-│   │   └── mentor.py               # SmolLM3-3B (briefing generation)
+│   │   └── mentor.py               # MiniCPM5-1B + LoRA (briefing generation)
 │   │
 │   ├── pipeline/                   # Data processing pipeline
 │   │   ├── __init__.py
@@ -134,9 +134,9 @@ class LearnLensConfig(BaseModel):
 
     # Model IDs
     embedding_model_id: str = "nomic-ai/nomic-embed-text-v1.5"
-    prioritizer_model_id: str = "sarthakbiswas/learnlens-prioritizer"
+    prioritizer_adapter_id: str = "sarthakbiswas/learnlens-scorer-lora"
     prioritizer_base_model_id: str = "openbmb/MiniCPM5-1B"
-    mentor_model_id: str = "HuggingFaceTB/SmolLM3-3B"
+    mentor_adapter_id: str = "sarthakbiswas/learnlens-mentor-lora"
 
     # Embedding
     embedding_dim: int = Field(default=256, description="Matryoshka dim (768, 512, 256, 128, 64)")

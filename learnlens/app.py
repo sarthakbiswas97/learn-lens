@@ -45,6 +45,10 @@ _tokenizer = AutoTokenizer.from_pretrained(
 prioritizer = PrioritizerModel(config, base_model=_base_model, tokenizer=_tokenizer)
 mentor = MentorModel(config, base_model=_base_model, tokenizer=_tokenizer)
 
+# Attach LoRA adapters to shared base model
+prioritizer.load()
+mentor.load()
+
 
 def main() -> None:
     configure_logging()

@@ -210,7 +210,7 @@ inputs = tokenizer.apply_chat_template(
 outputs = model.generate(
     **inputs,
     max_new_tokens=256,
-    temperature=0.7,
+    temperature=0.5,
     top_p=0.95,
     do_sample=True,
 )
@@ -505,12 +505,12 @@ def generate_training_example(
     user_prompt = f"Content: {content_title}\n{content_summary}\n\nLearning Goals:\n{goals_text}"
 
     response = client.chat.completions.create(
-        model="nvidia/llama-3.1-nemotron-super-49b-v1",
+        model="nvidia/nemotron-3-ultra-550b-a55b",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.7,
+        temperature=0.5,
         max_tokens=512,
     )
 
@@ -770,7 +770,7 @@ tags:
   - learning-mentor
   - small-models
   - minicpm
-  - smollm
+  - minicpm
 ---
 ```
 
