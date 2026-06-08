@@ -26,7 +26,7 @@ from learnlens.storage.queries import (
 class MockPrioritizer(PrioritizerModel):
     """Prioritizer that returns deterministic scores without loading a model."""
 
-    def __init__(self, config: LearnLensConfig) -> None:
+    def __init__(self, config: LearnLensConfig, **_kwargs: object) -> None:
         self._config = config
 
     def load(self) -> None:
@@ -48,7 +48,7 @@ class MockPrioritizer(PrioritizerModel):
 class MockMentor(MentorModel):
     """Mentor that returns a simple markdown briefing without loading a model."""
 
-    def __init__(self, config: LearnLensConfig) -> None:
+    def __init__(self, config: LearnLensConfig, **_kwargs: object) -> None:
         self._config = config
 
     def load(self) -> None:
