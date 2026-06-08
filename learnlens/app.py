@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 
 import gradio as gr
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from learnlens.config import load_config
 from learnlens.models.connector import ConnectorModel
@@ -24,9 +26,24 @@ logger = logging.getLogger(__name__)
 
 # Load models at module level (ZeroGPU loads before @spaces.GPU activation)
 config = load_config()
+
+# Model 1: Embedding (independent architecture)
 connector = ConnectorModel(config)
-prioritizer = PrioritizerModel(config)
-mentor = MentorModel(config)
+
+# Model 2 + 3: Shared MiniCPM5-1B base with dual LoRA adapters
+_base_model = AutoModelForCausalLM.from_pretrained(
+    config.prioritizer_base_model_id,
+    dtype=torch.bfloat16,
+    device_map="auto",
+    trust_remote_code=True,
+)
+_tokenizer = AutoTokenizer.from_pretrained(
+    config.prioritizer_base_model_id,
+    trust_remote_code=True,
+)
+
+prioritizer = PrioritizerModel(config, base_model=_base_model, tokenizer=_tokenizer)
+mentor = MentorModel(config, base_model=_base_model, tokenizer=_tokenizer)
 
 
 def main() -> None:

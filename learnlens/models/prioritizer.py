@@ -6,7 +6,6 @@ import json
 import logging
 import re
 
-import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -27,44 +26,38 @@ _SYSTEM_PROMPT = (
 class PrioritizerModel:
     """Wrapper for MiniCPM5-1B + LoRA priority scorer."""
 
-    def __init__(self, config: LearnLensConfig) -> None:
+    def __init__(
+        self,
+        config: LearnLensConfig,
+        base_model: AutoModelForCausalLM | None = None,
+        tokenizer: AutoTokenizer | None = None,
+    ) -> None:
         self._config = config
+        self._base_model = base_model
+        self._tokenizer = tokenizer
         self._model: AutoModelForCausalLM | None = None
-        self._tokenizer: AutoTokenizer | None = None
+        self._adapter_loaded = False
 
     def load(self) -> None:
-        """Load base model and optional LoRA adapter."""
-        logger.info("Loading prioritizer base model: %s", self._config.prioritizer_base_model_id)
-
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self._config.prioritizer_base_model_id,
-            trust_remote_code=True,
-        )
-        base_model = AutoModelForCausalLM.from_pretrained(
-            self._config.prioritizer_base_model_id,
-            dtype=torch.bfloat16,
-            device_map="auto",
-            trust_remote_code=True,
-        )
-
-        # Attempt to load LoRA adapter; fall back to base if unavailable
-        try:
-            self._model = PeftModel.from_pretrained(
-                base_model,
-                self._config.prioritizer_model_id,
+        """Attach scorer LoRA adapter to shared base model."""
+        if self._base_model is None:
+            raise RuntimeError(
+                "PrioritizerModel requires a shared base_model to be provided"
             )
-            logger.info("Loaded LoRA adapter: %s", self._config.prioritizer_model_id)
-        except Exception:
-            self._model = base_model
-            logger.warning(
-                "LoRA adapter not found (%s), using base model",
-                self._config.prioritizer_model_id,
-            )
+
+        logger.info("Loading scorer adapter: %s", self._config.prioritizer_adapter_id)
+        self._model = PeftModel.from_pretrained(
+            self._base_model,
+            self._config.prioritizer_adapter_id,
+            adapter_name="scorer",
+        )
+        self._adapter_loaded = True
+        logger.info("Scorer adapter loaded")
 
     def _ensure_loaded(self) -> tuple[AutoModelForCausalLM, AutoTokenizer]:
         if self._model is None or self._tokenizer is None:
-            self.load()
-        return self._model, self._tokenizer  # type: ignore[return-value]
+            raise RuntimeError("PrioritizerModel not loaded. Call load() first.")
+        return self._model, self._tokenizer
 
     def score(
         self,
@@ -77,8 +70,11 @@ class PrioritizerModel:
             ScoredItem with score (1-10), rationale, and suggested action.
         """
         model, tokenizer = self._ensure_loaded()
+        model.set_adapter("scorer")
 
-        goals_text = "\n".join(f"- {g.goal_text} (priority {g.priority})" for g in goals)
+        goals_text = "\n".join(
+            f"- {g.goal_text} (priority {g.priority})" for g in goals
+        )
         summary = content.body_text[:500]
 
         messages = [
@@ -118,8 +114,10 @@ class PrioritizerModel:
         parsed = self._parse_response(raw)
 
         # Attach to highest-priority goal for grouping
-        primary_goal = max(goals, key=lambda g: g.priority) if goals else Goal(
-            id=0, goal_text="general", priority=3, is_active=True
+        primary_goal = (
+            max(goals, key=lambda g: g.priority)
+            if goals
+            else Goal(id=0, goal_text="general", priority=3, is_active=True)
         )
 
         return ScoredItem(

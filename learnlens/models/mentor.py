@@ -1,10 +1,10 @@
-"""Wrapper for SmolLM3-3B briefing generator."""
+"""Wrapper for MiniCPM5-1B + LoRA mentor briefing generator."""
 
 from __future__ import annotations
 
 import logging
 
-import torch
+from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from learnlens.config import LearnLensConfig
@@ -26,32 +26,38 @@ _SYSTEM_PROMPT = (
 
 
 class MentorModel:
-    """Wrapper for SmolLM3-3B briefing generator."""
+    """Wrapper for MiniCPM5-1B + LoRA mentor briefing generator."""
 
-    def __init__(self, config: LearnLensConfig) -> None:
+    def __init__(
+        self,
+        config: LearnLensConfig,
+        base_model: AutoModelForCausalLM | None = None,
+        tokenizer: AutoTokenizer | None = None,
+    ) -> None:
         self._config = config
+        self._base_model = base_model
+        self._tokenizer = tokenizer
         self._model: AutoModelForCausalLM | None = None
-        self._tokenizer: AutoTokenizer | None = None
+        self._adapter_loaded = False
 
     def load(self) -> None:
-        """Load model and tokenizer."""
-        logger.info("Loading mentor model: %s", self._config.mentor_model_id)
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self._config.mentor_model_id,
-            trust_remote_code=True,
+        """Attach mentor LoRA adapter to shared base model."""
+        if self._base_model is None:
+            raise RuntimeError("MentorModel requires a shared base_model to be provided")
+
+        logger.info("Loading mentor adapter: %s", self._config.mentor_adapter_id)
+        self._model = PeftModel.from_pretrained(
+            self._base_model,
+            self._config.mentor_adapter_id,
+            adapter_name="mentor",
         )
-        self._model = AutoModelForCausalLM.from_pretrained(
-            self._config.mentor_model_id,
-            dtype=torch.bfloat16,
-            device_map="auto",
-            trust_remote_code=True,
-        )
-        logger.info("Mentor model loaded")
+        self._adapter_loaded = True
+        logger.info("Mentor adapter loaded")
 
     def _ensure_loaded(self) -> tuple[AutoModelForCausalLM, AutoTokenizer]:
         if self._model is None or self._tokenizer is None:
-            self.load()
-        return self._model, self._tokenizer  # type: ignore[return-value]
+            raise RuntimeError("MentorModel not loaded. Call load() first.")
+        return self._model, self._tokenizer
 
     def generate_briefing(self, request: BriefingRequest) -> str:
         """Generate a daily briefing from scored items, forgotten items, and mistakes.
@@ -60,6 +66,7 @@ class MentorModel:
             Markdown-formatted daily briefing string.
         """
         model, tokenizer = self._ensure_loaded()
+        model.set_adapter("mentor")
 
         context = self._assemble_context(request)
 
