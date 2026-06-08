@@ -46,13 +46,20 @@ class PrioritizerModel:
             )
 
         logger.info("Loading scorer adapter: %s", self._config.prioritizer_adapter_id)
-        self._model = PeftModel.from_pretrained(
-            self._base_model,
-            self._config.prioritizer_adapter_id,
-            adapter_name="scorer",
-        )
-        self._adapter_loaded = True
-        logger.info("Scorer adapter loaded")
+        try:
+            self._model = PeftModel.from_pretrained(
+                self._base_model,
+                self._config.prioritizer_adapter_id,
+                adapter_name="scorer",
+            )
+            self._adapter_loaded = True
+            logger.info("Scorer adapter loaded")
+        except (ValueError, OSError):
+            self._model = self._base_model
+            logger.warning(
+                "Scorer adapter not found (%s), using base model",
+                self._config.prioritizer_adapter_id,
+            )
 
     def _ensure_loaded(self) -> tuple[AutoModelForCausalLM, AutoTokenizer]:
         if self._model is None or self._tokenizer is None:
@@ -70,7 +77,8 @@ class PrioritizerModel:
             ScoredItem with score (1-10), rationale, and suggested action.
         """
         model, tokenizer = self._ensure_loaded()
-        model.set_adapter("scorer")
+        if self._adapter_loaded:
+            model.set_adapter("scorer")
 
         goals_text = "\n".join(
             f"- {g.goal_text} (priority {g.priority})" for g in goals

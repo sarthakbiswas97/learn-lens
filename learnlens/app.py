@@ -31,12 +31,14 @@ config = load_config()
 connector = ConnectorModel(config)
 
 # Model 2 + 3: Shared MiniCPM5-1B base with dual LoRA adapters
+# device_map="auto" hangs on MPS; load to CPU then move to best device
+_device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+_dtype = torch.bfloat16 if _device == "cuda" else torch.float16
 _base_model = AutoModelForCausalLM.from_pretrained(
     config.prioritizer_base_model_id,
-    dtype=torch.bfloat16,
-    device_map="auto",
+    dtype=_dtype,
     trust_remote_code=True,
-)
+).to(_device)
 _tokenizer = AutoTokenizer.from_pretrained(
     config.prioritizer_base_model_id,
     trust_remote_code=True,
@@ -54,7 +56,7 @@ def main() -> None:
     configure_logging()
     db = Database(config.db_path)
 
-    with gr.Blocks(title="LearnLens", theme=gr.themes.Soft()) as app:
+    with gr.Blocks(title="LearnLens") as app:
         gr.Markdown("# LearnLens -- Your AI Learning Mentor")
         gr.Markdown(
             "*An opinionated mentor that tells you what to focus on "

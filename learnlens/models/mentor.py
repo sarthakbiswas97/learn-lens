@@ -46,13 +46,20 @@ class MentorModel:
             raise RuntimeError("MentorModel requires a shared base_model to be provided")
 
         logger.info("Loading mentor adapter: %s", self._config.mentor_adapter_id)
-        self._model = PeftModel.from_pretrained(
-            self._base_model,
-            self._config.mentor_adapter_id,
-            adapter_name="mentor",
-        )
-        self._adapter_loaded = True
-        logger.info("Mentor adapter loaded")
+        try:
+            self._model = PeftModel.from_pretrained(
+                self._base_model,
+                self._config.mentor_adapter_id,
+                adapter_name="mentor",
+            )
+            self._adapter_loaded = True
+            logger.info("Mentor adapter loaded")
+        except (ValueError, OSError):
+            self._model = self._base_model
+            logger.warning(
+                "Mentor adapter not found (%s), using base model",
+                self._config.mentor_adapter_id,
+            )
 
     def _ensure_loaded(self) -> tuple[AutoModelForCausalLM, AutoTokenizer]:
         if self._model is None or self._tokenizer is None:
@@ -66,7 +73,8 @@ class MentorModel:
             Markdown-formatted daily briefing string.
         """
         model, tokenizer = self._ensure_loaded()
-        model.set_adapter("mentor")
+        if self._adapter_loaded:
+            model.set_adapter("mentor")
 
         context = self._assemble_context(request)
 
