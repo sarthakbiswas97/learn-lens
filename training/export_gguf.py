@@ -7,39 +7,45 @@ import subprocess
 import sys
 from pathlib import Path
 
+from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL_ID = "sarthakbiswas/learnlens-prioritizer"
-DEFAULT_OUTPUT = "training/output/learnlens-prioritizer.gguf"
+BASE_MODEL_ID = "openbmb/MiniCPM5-1B"
 
 
 def export_gguf(
-    model_id: str = DEFAULT_MODEL_ID,
-    output_path: str = DEFAULT_OUTPUT,
+    adapter_id: str,
+    output_path: str,
     quantization: str = "Q4_K_M",
 ) -> None:
-    """Export a HuggingFace model to GGUF format for llama.cpp.
+    """Export a merged base+LoRA adapter to GGUF format for llama.cpp.
 
     Requires llama.cpp to be installed and convert_hf_to_gguf.py available.
     """
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Loading model: %s", model_id)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
+    logger.info("Loading base model: %s", BASE_MODEL_ID)
+    base_model = AutoModelForCausalLM.from_pretrained(
+        BASE_MODEL_ID,
         dtype="auto",
         device_map="cpu",
         trust_remote_code=True,
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
+
+    logger.info("Loading LoRA adapter: %s", adapter_id)
+    model = PeftModel.from_pretrained(base_model, adapter_id)
+
+    logger.info("Merging adapter into base model...")
+    merged_model = model.merge_and_unload()
 
     # Save to temporary directory for conversion
     temp_dir = Path("training/output/temp_hf")
     temp_dir.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(temp_dir)
+    merged_model.save_pretrained(temp_dir)
     tokenizer.save_pretrained(temp_dir)
 
     # Find llama.cpp convert script
@@ -69,4 +75,13 @@ def export_gguf(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    export_gguf()
+    # Export scorer adapter
+    export_gguf(
+        adapter_id="sarthakbiswas/learnlens-scorer-lora",
+        output_path="training/output/learnlens-scorer.gguf",
+    )
+    # Export mentor adapter
+    export_gguf(
+        adapter_id="sarthakbiswas/learnlens-mentor-lora",
+        output_path="training/output/learnlens-mentor.gguf",
+    )
