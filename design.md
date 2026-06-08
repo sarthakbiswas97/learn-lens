@@ -90,7 +90,7 @@ You could merge Prioritizer + Mentor into one model, but:
                                         |
                                         v
                               MODEL 2: PRIORITIZER
-                               MiniCPM5-1B (LoRA)
+                            MiniCPM5-1B + LoRA-scorer
                                         |
                            score each item vs goals
                                         |
@@ -110,7 +110,8 @@ You could merge Prioritizer + Mentor into one model, but:
                                         |
                                         v
                               MODEL 3: MENTOR
-                                SmolLM3-3B
+                           MiniCPM5-1B + LoRA-mentor
+                              (shared base weights)
                                         |
                              generate daily briefing
                                         |
@@ -196,22 +197,22 @@ You could merge Prioritizer + Mentor into one model, but:
 
 ---
 
-### Model 3 -- Mentor: HuggingFaceTB/SmolLM3-3B
+### Model 3 -- Mentor: MiniCPM5-1B + LoRA-mentor
 
 | Property | Value |
 |----------|-------|
-| Parameters | 3B |
-| Context | 64K trained, up to 128K with YARN |
-| Languages | EN, FR, ES, DE, IT, PT + AR, ZH, RU |
+| Base Parameters | ~1.08B (shared with Model 2) |
+| LoRA Parameters | ~16M (r=32, alpha=64) |
+| Architecture | LlamaForCausalLM, GQA (16 Q-heads, 2 KV-heads) |
+| Context | 131,072 tokens |
 | License | Apache 2.0 |
-| GGUF | Available (Llama Champion badge) |
 
 **Why this model:**
-- **Best-in-class at 3B**: Outperforms both Qwen2.5-3B and Llama-3.2-3B on benchmarks
-- **HuggingFace's own model**: Bonus relevance at a HuggingFace hackathon
-- **Apache 2.0**: No license restrictions
-- **Dual-mode reasoning**: Think/no-think toggle for quality vs. speed tradeoff
-- **GGUF available**: Gets Llama Champion badge via llama.cpp serving
+- **Shared base with Model 2**: Load MiniCPM5-1B once (~2GB), attach two LoRA adapters. Total VRAM: ~2GB + a few MB per adapter
+- **Tiny Titan eligible**: Total ~2.2B params (137M + 1B + 1B) instead of ~4.3B with SmolLM3
+- **Same chat format as Model 2**: No tokenizer mismatch, same `enable_thinking=False` API
+- **Adapter swapping at runtime**: `model.set_adapter("mentor")` vs `model.set_adapter("scorer")`
+- **OpenBMB sponsor relevance**: Both adapters built on their flagship model
 
 **Input/Output contract:**
 - Input: structured prompt containing:
@@ -229,6 +230,13 @@ You could merge Prioritizer + Mentor into one model, but:
 - "Stop reading about Redis internals" not "You might consider deprioritizing Redis content"
 - "This is 10x more relevant to your goals" not "This content has high alignment"
 - "You forgot about this -- again" not "This item has low interaction count"
+
+**Fine-tuning approach:**
+- Knowledge distillation from Nemotron-Ultra-550B (teacher) via NVIDIA NIM API
+- Generate ~2000 training examples (synthetic briefing contexts -> markdown briefings)
+- LoRA SFT with TRL SFTTrainer (r=32, alpha=64, max_seq_length=4096)
+- Train on Modal A10G (~$5-10 credits, ~30 min)
+- Push adapter only to HuggingFace Hub (sarthakbiswas/learnlens-mentor-lora)
 
 ---
 
@@ -401,47 +409,62 @@ The first thing you see when you open LearnLens. Not a dashboard, not a graph --
 
 ---
 
-## 8. Training Pipeline (Model 2 Knowledge Distillation)
+## 8. Training Pipeline (Dual LoRA Knowledge Distillation)
 
 ### Why Distillation?
 
-MiniCPM5-1B out of the box is a general-purpose model. It does not know how to score learning content against goals. We need to teach it this specific behavior.
+MiniCPM5-1B out of the box is a general-purpose model. It does not know how to score learning content against goals, nor how to generate opinionated briefings. We need to teach it both behaviors via two specialized LoRA adapters.
 
 Options:
-1. **Manual annotation**: Label 2000 examples by hand -- too slow for hackathon
-2. **Prompt engineering**: Use MiniCPM5-1B with a detailed system prompt -- output quality is inconsistent at 1B
-3. **Knowledge distillation**: Use Nemotron-Super-49B-v1 (teacher) to generate gold labels, then fine-tune MiniCPM5-1B (student) -- best quality, automated, targets NVIDIA sponsor prize
+1. **Manual annotation**: Label 2000+ examples by hand -- too slow for hackathon
+2. **Prompt engineering**: Use MiniCPM5-1B with detailed system prompts -- output quality is inconsistent at 1B for both tasks
+3. **Knowledge distillation**: Use Nemotron-Ultra-550B (teacher) to generate gold labels, then fine-tune MiniCPM5-1B (student) with dual LoRA adapters -- best quality, automated, targets NVIDIA sponsor prize
 
-### Distillation Pipeline
+### Adapter 1: Scorer (Prioritizer)
 
 ```
-Step 1: Generate synthetic content-goal pairs
-        (diverse topics, diverse goal types)
+Step 1: Generate synthetic content-goal pairs (40+ templates, 20 goals)
                     |
                     v
-Step 2: Send to Nemotron via NVIDIA NIM API
+Step 2: Send to Nemotron-Ultra-550B via NVIDIA NIM API
         (system prompt: "You are a learning prioritization expert")
         (output: JSON with score, rationale, action)
                     |
                     v
 Step 3: Validate and filter responses
-        (parse JSON, check score range, discard malformed)
                     |
                     v
-Step 4: Format as JSONL chat messages
-        (system + user + assistant format)
-                    |
-                    v
-Step 5: LoRA fine-tune MiniCPM5-1B
-        (TRL SFTTrainer, r=16, alpha=32)
+Step 4: LoRA fine-tune MiniCPM5-1B
+        (TRL SFTTrainer, r=16, alpha=32, max_seq_length=2048)
         (Modal A10G, ~30 min, ~$5-10)
                     |
                     v
-Step 6: Merge LoRA weights
+Step 5: Push adapter to HuggingFace Hub
+        (sarthakbiswas/learnlens-scorer-lora)
+```
+
+### Adapter 2: Mentor (Briefing Generator)
+
+```
+Step 1: Generate synthetic briefing contexts
+        (goals + scored items + forgotten items + mistakes)
                     |
                     v
-Step 7: Push to HuggingFace Hub
-        (sarthakbiswas/learnlens-prioritizer)
+Step 2: Send to Nemotron-Ultra-550B via NVIDIA NIM API
+        (system prompt: "You are an opinionated learning mentor")
+        (output: markdown briefing with 4 sections)
+                    |
+                    v
+Step 3: Validate all 4 sections present
+                    |
+                    v
+Step 4: LoRA fine-tune MiniCPM5-1B
+        (TRL SFTTrainer, r=32, alpha=64, max_seq_length=4096)
+        (Modal A10G, ~30 min, ~$5-10)
+                    |
+                    v
+Step 5: Push adapter to HuggingFace Hub
+        (sarthakbiswas/learnlens-mentor-lora)
 ```
 
 ### Data Generation Strategy
@@ -481,12 +504,12 @@ For persistent use, users run LearnLens locally.
 
 | Sponsor/Track | How LearnLens Qualifies | Prize |
 |---------------|------------------------|-------|
-| **OpenBMB Special Award** | MiniCPM5-1B as Model 2 (Prioritizer), prominently featured | $5K per track ($10K total) |
-| **Tiny Titan** | Total ~4.1B params (137M + 1B + 3B) | Track prize |
+| **OpenBMB Special Award** | MiniCPM5-1B as shared base for both prioritizer and mentor | $5K per track ($10K total) |
+| **Tiny Titan** | Total ~2.2B params (137M + 1B + 1B) | Track prize |
 | **Backyard AI** | Local-first, privacy-preserving, runs on consumer hardware | Track prize |
-| **Llama Champion badge** | SmolLM3-3B served via GGUF/llama.cpp | Merit badge |
-| **NVIDIA** | Knowledge distillation from Nemotron via NIM API | Sponsor prize |
-| **HuggingFace ecosystem** | Gradio app, HF Spaces, sentence-transformers, SmolLM3 (HF's own model) | Community recognition |
+| **Llama Champion badge** | MiniCPM5-1B served via GGUF/llama.cpp | Merit badge |
+| **NVIDIA** | 550B -> 1B knowledge distillation from Nemotron Ultra via NIM API | Sponsor prize |
+| **HuggingFace ecosystem** | Gradio app, HF Spaces, sentence-transformers, PEFT, TRL | Community recognition |
 
 ### Maximizing Visibility
 

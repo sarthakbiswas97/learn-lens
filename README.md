@@ -31,16 +31,16 @@ User Input (URLs / Bookmarks / Chrome History)
     Model 1: Connector (nomic-embed-text-v1.5, 137M)
          |  -> embeddings, similarity, forgotten items
          |
-    Model 2: Prioritizer (MiniCPM5-1B + LoRA, ~1B)
+    Model 2: Prioritizer (MiniCPM5-1B + LoRA-scorer, ~1B)
          |  -> structured JSON scoring 1-10 vs goals
          |
-    Model 3: Mentor (SmolLM3-3B, 3B)
+    Model 3: Mentor (MiniCPM5-1B + LoRA-mentor, ~1B)
          |  -> opinionated markdown daily briefing
          |
     Gradio UI (5 tabs)
 ```
 
-**Total parameters: ~4.1B** (Tiny Titan track eligible)
+**Key innovation:** Models 2 and 3 share the same MiniCPM5-1B base weights (~2GB) and swap LoRA adapters at runtime. Total parameters: **~2.2B** (Tiny Titan track eligible).
 
 ---
 
@@ -75,8 +75,9 @@ uv run python scripts/seed_demo_data.py
 |-----------|-----------|
 | UI | Gradio 5.0+ |
 | Embedding | nomic-embed-text-v1.5 (137M) |
-| Prioritizer | MiniCPM5-1B + LoRA (~1B) |
-| Mentor | SmolLM3-3B (3B) |
+| Prioritizer | MiniCPM5-1B + LoRA-scorer (~1B) |
+| Mentor | MiniCPM5-1B + LoRA-mentor (~1B) |
+| Shared Base | MiniCPM5-1B loaded once, 2 adapters swapped |
 | Storage | SQLite (WAL mode) |
 | Training | Modal + TRL + NVIDIA NIM |
 
@@ -87,9 +88,11 @@ uv run python scripts/seed_demo_data.py
 ```bash
 # Generate distillation data (requires NVIDIA_NIM_API_KEY)
 uv run python training/generate_data.py
+uv run python training/generate_mentor_data.py
 
-# Fine-tune on Modal
+# Fine-tune both adapters on Modal
 modal run training/train_prioritizer.py
+modal run training/train_mentor.py
 ```
 
 ---
@@ -98,12 +101,12 @@ modal run training/train_prioritizer.py
 
 | Sponsor | How We Qualify |
 |---------|---------------|
-| **OpenBMB** | MiniCPM5-1B as core Model 2 |
-| **Tiny Titan** | ~4.1B total parameters |
+| **OpenBMB** | MiniCPM5-1B as shared base for both prioritizer and mentor |
+| **Tiny Titan** | ~2.2B total parameters (137M + 1B + 1B) |
 | **Backyard AI** | Local-first, privacy-preserving |
 | **Llama Champion** | GGUF export for llama.cpp |
-| **NVIDIA** | Knowledge distillation from Nemotron |
-| **HuggingFace** | Gradio, HF Spaces, SmolLM3 |
+| **NVIDIA** | 550B -> 1B knowledge distillation via Nemotron Ultra |
+| **HuggingFace** | Gradio, HF Spaces, PEFT, TRL |
 
 ---
 
