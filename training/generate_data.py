@@ -260,12 +260,12 @@ def generate_training_example(
 
     try:
         response = client.chat.completions.create(
-            model="nvidia/llama-3.1-nemotron-super-49b-v1",
+            model="nvidia/nemotron-3-ultra-550b-a55b",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.7,
+            temperature=0.5,
             max_tokens=512,
         )
     except Exception as e:
