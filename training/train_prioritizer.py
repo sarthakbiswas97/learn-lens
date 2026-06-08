@@ -101,11 +101,11 @@ def train() -> None:
 
     trainer.train()
 
-    # Merge and push
-    merged_model = trainer.model.merge_and_unload()
-    merged_model.push_to_hub("sarthakbiswas/learnlens-prioritizer")
-    tokenizer.push_to_hub("sarthakbiswas/learnlens-prioritizer")
-    logger.info("Model pushed to HuggingFace Hub")
+    # Save and push adapter only (base model loaded separately at runtime)
+    trainer.model.save_pretrained("/root/output/lora-scorer")
+    trainer.model.push_to_hub("sarthakbiswas/learnlens-scorer-lora")
+    tokenizer.push_to_hub("sarthakbiswas/learnlens-scorer-lora")
+    logger.info("Adapter pushed to HuggingFace Hub")
 
 
 @app.local_entrypoint()
