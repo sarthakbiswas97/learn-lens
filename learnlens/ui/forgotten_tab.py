@@ -23,7 +23,6 @@ def create(db: Database, connector: ConnectorModel, config: LearnLensConfig) -> 
 def _load_forgotten(
     db: Database, connector: ConnectorModel, config: LearnLensConfig
 ) -> list[dict[str, str]]:
-    from learnlens.models.types import Goal
     from learnlens.pipeline.embedding import find_forgotten_items
     from learnlens.storage.queries import get_active_goals
 

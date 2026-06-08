@@ -36,7 +36,8 @@ def main() -> None:
     with gr.Blocks(title="LearnLens", theme=gr.themes.Soft()) as app:
         gr.Markdown("# LearnLens -- Your AI Learning Mentor")
         gr.Markdown(
-            "*An opinionated mentor that tells you what to focus on and what to stop wasting time on.*"
+            "*An opinionated mentor that tells you what to focus on "
+            "and what to stop wasting time on.*"
         )
 
         with gr.Tabs():

@@ -9,6 +9,8 @@ from learnlens.models.connector import ConnectorModel
 from learnlens.models.mentor import MentorModel
 from learnlens.models.prioritizer import PrioritizerModel
 from learnlens.models.types import BriefingRequest
+from learnlens.pipeline.embedding import embed_new_content, find_forgotten_items
+from learnlens.pipeline.scoring import score_content
 from learnlens.storage.database import Database
 from learnlens.storage.queries import (
     get_active_goals,
@@ -16,8 +18,6 @@ from learnlens.storage.queries import (
     get_top_scored,
     insert_briefing,
 )
-from learnlens.pipeline.embedding import embed_new_content, find_forgotten_items
-from learnlens.pipeline.scoring import score_content
 
 logger = logging.getLogger(__name__)
 

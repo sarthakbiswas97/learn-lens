@@ -11,7 +11,6 @@ from learnlens.models.connector import ConnectorModel
 from learnlens.models.types import ContentItem, Goal
 from learnlens.storage.database import Database
 from learnlens.storage.queries import (
-    get_all_content,
     get_all_embeddings,
     get_content_by_id,
     get_items_without_interactions,
@@ -35,7 +34,7 @@ def embed_new_content(db: Database, model: ConnectorModel) -> int:
     texts = [item.body_text for item in items]
     embeddings = model.embed_documents(texts)
 
-    for item, vector in zip(items, embeddings):
+    for item, vector in zip(items, embeddings, strict=False):
         insert_embedding(
             conn=db.connection,
             content_id=item.id,

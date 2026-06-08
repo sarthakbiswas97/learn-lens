@@ -98,7 +98,7 @@ def ingest_bookmarks(file_path: Path, db: Database) -> list[ContentItem]:
     """
     logger.info("Parsing bookmarks from %s", file_path)
 
-    if not file_path.suffix.lower() == ".html":
+    if file_path.suffix.lower() != ".html":
         logger.error("Bookmarks file must be .html, got %s", file_path.suffix)
         return []
 
@@ -162,7 +162,6 @@ def ingest_chrome_history(
     ingested: list[ContentItem] = []
     for row in rows:
         url = row[0]
-        title = row[1] or ""
         result = ingest_url(url, db)
         if result is not None:
             ingested.append(result)

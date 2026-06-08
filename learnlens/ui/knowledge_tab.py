@@ -24,7 +24,6 @@ def _load_plot(
     db: Database, connector: ConnectorModel, config: LearnLensConfig
 ) -> dict | None:
     try:
-        import numpy as np
         import plotly.express as px
         import umap
 
