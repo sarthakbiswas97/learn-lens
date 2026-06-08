@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from learnlens.models.types import Goal
 from learnlens.storage.database import Database
 from learnlens.storage.queries import (
     delete_goal,
