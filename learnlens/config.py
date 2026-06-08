@@ -22,9 +22,9 @@ class LearnLensConfig(BaseModel):
 
     # Model IDs
     embedding_model_id: str = "nomic-ai/nomic-embed-text-v1.5"
-    prioritizer_model_id: str = "sarthakbiswas/learnlens-prioritizer"
+    prioritizer_adapter_id: str = "sarthakbiswas/learnlens-scorer-lora"
     prioritizer_base_model_id: str = "openbmb/MiniCPM5-1B"
-    mentor_model_id: str = "HuggingFaceTB/SmolLM3-3B"
+    mentor_adapter_id: str = "sarthakbiswas/learnlens-mentor-lora"
 
     # Embedding
     embedding_dim: int = Field(

@@ -1,9 +1,9 @@
 {
   "db_path": "data/learnlens.db",
   "embedding_model_id": "nomic-ai/nomic-embed-text-v1.5",
-  "prioritizer_model_id": "sarthakbiswas/learnlens-prioritizer",
+  "prioritizer_adapter_id": "sarthakbiswas/learnlens-scorer-lora",
   "prioritizer_base_model_id": "openbmb/MiniCPM5-1B",
-  "mentor_model_id": "HuggingFaceTB/SmolLM3-3B",
+  "mentor_adapter_id": "sarthakbiswas/learnlens-mentor-lora",
   "embedding_dim": 256,
   "max_content_length": 4096,
   "top_k_briefing": 10,
