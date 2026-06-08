@@ -46,8 +46,10 @@ learnlens/
 │       └── text.py                 # Text cleaning, truncation, extraction
 │
 ├── training/                       # Model training (not part of main package)
-│   ├── generate_data.py            # Nemotron distillation data generation
-│   ├── train_prioritizer.py        # LoRA fine-tuning on Modal
+│   ├── generate_data.py            # Nemotron distillation data generation (scorer)
+│   ├── generate_mentor_data.py     # Nemotron distillation data generation (mentor)
+│   ├── train_prioritizer.py        # LoRA fine-tuning scorer adapter on Modal
+│   ├── train_mentor.py             # LoRA fine-tuning mentor adapter on Modal
 │   └── export_gguf.py              # GGUF conversion for llama.cpp
 │
 ├── configs/
@@ -330,9 +332,14 @@ class ConnectorModel:
 
 ```python
 class PrioritizerModel:
-    """Wrapper for MiniCPM5-1B + LoRA priority scorer."""
+    """Wrapper for MiniCPM5-1B + LoRA-scorer priority scorer."""
 
-    def __init__(self, config: LearnLensConfig) -> None: ...
+    def __init__(
+        self,
+        config: LearnLensConfig,
+        base_model: AutoModelForCausalLM | None = None,
+        tokenizer: AutoTokenizer | None = None,
+    ) -> None: ...
     def load(self) -> None: ...
 
     def score(
@@ -349,7 +356,7 @@ class PrioritizerModel:
 ```
 
 **Dependencies:** transformers, peft, torch
-**Side effects:** loads base model + LoRA adapter to GPU on `load()`
+**Side effects:** attaches LoRA-scorer adapter to shared base model on `load()`
 
 ---
 
@@ -357,9 +364,14 @@ class PrioritizerModel:
 
 ```python
 class MentorModel:
-    """Wrapper for SmolLM3-3B briefing generator."""
+    """Wrapper for MiniCPM5-1B + LoRA-mentor briefing generator."""
 
-    def __init__(self, config: LearnLensConfig) -> None: ...
+    def __init__(
+        self,
+        config: LearnLensConfig,
+        base_model: AutoModelForCausalLM | None = None,
+        tokenizer: AutoTokenizer | None = None,
+    ) -> None: ...
     def load(self) -> None: ...
 
     def generate_briefing(self, request: BriefingRequest) -> str:
@@ -371,8 +383,8 @@ class MentorModel:
         ...
 ```
 
-**Dependencies:** transformers, torch
-**Side effects:** loads model to GPU on `load()`
+**Dependencies:** transformers, peft, torch
+**Side effects:** attaches LoRA-mentor adapter to shared base model on `load()`
 
 ---
 
@@ -761,9 +773,11 @@ uv run ruff format .
 
 # Generate distillation data (requires NVIDIA_NIM_API_KEY)
 uv run python training/generate_data.py
+uv run python training/generate_mentor_data.py
 
 # Fine-tune on Modal (requires modal setup)
 modal run training/train_prioritizer.py
+modal run training/train_mentor.py
 
 ## Project Structure
 

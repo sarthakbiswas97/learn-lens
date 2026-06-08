@@ -19,9 +19,11 @@ uv run ruff format .
 
 # Generate distillation data (requires NVIDIA_NIM_API_KEY)
 uv run python training/generate_data.py
+uv run python training/generate_mentor_data.py
 
 # Fine-tune on Modal (requires modal setup)
 modal run training/train_prioritizer.py
+modal run training/train_mentor.py
 
 ## Project Structure
 

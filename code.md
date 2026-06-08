@@ -69,16 +69,18 @@
 
 ### Phase 3: Training Pipeline (Day 3-4)
 
-1. `training/generate_data.py` -- Nemotron data generation via NIM API
-2. `training/train_prioritizer.py` -- LoRA fine-tuning on Modal
-3. Push trained adapter to HuggingFace Hub
+1. `training/generate_data.py` -- Nemotron data generation for scorer via NIM API
+2. `training/generate_mentor_data.py` -- Nemotron data generation for mentor via NIM API
+3. `training/train_prioritizer.py` -- LoRA fine-tune scorer adapter on Modal
+4. `training/train_mentor.py` -- LoRA fine-tune mentor adapter on Modal
+5. Push both adapters to HuggingFace Hub
 
-**Milestone:** Have a fine-tuned MiniCPM5-1B adapter on HF Hub.
+**Milestone:** Have both LoRA adapters (scorer + mentor) on HF Hub.
 
 ### Phase 4: Scoring + Briefing (Day 4-5)
 
 1. `learnlens/models/prioritizer.py` -- Load MiniCPM5-1B + LoRA, score content
-2. `learnlens/models/mentor.py` -- Load SmolLM3-3B, generate briefing
+2. `learnlens/models/mentor.py` -- Load MiniCPM5-1B + LoRA-mentor, generate briefing
 3. `learnlens/pipeline/scoring.py` -- Score all unscored content-goal pairs
 4. `learnlens/pipeline/briefing.py` -- Assemble context, generate briefing, store
 5. `tests/unit/test_prioritizer.py` -- Output parsing, score range
@@ -226,18 +228,30 @@ response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[-1]:], skip_spe
 
 ---
 
-### Model 3: SmolLM3-3B
+### Model 3: MiniCPM5-1B + LoRA-mentor
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
 import torch
 
-model = AutoModelForCausalLM.from_pretrained(
-    "HuggingFaceTB/SmolLM3-3B",
-    torch_dtype=torch.bfloat16,
+# Load shared base model (same as Model 2)
+base_model = AutoModelForCausalLM.from_pretrained(
+    "openbmb/MiniCPM5-1B",
+    dtype=torch.bfloat16,
     device_map="auto",
 )
-tokenizer = AutoTokenizer.from_pretrained("HuggingFaceTB/SmolLM3-3B")
+tokenizer = AutoTokenizer.from_pretrained("openbmb/MiniCPM5-1B")
+
+# Attach mentor LoRA adapter
+model = PeftModel.from_pretrained(
+    base_model,
+    "sarthakbiswas/learnlens-mentor-lora",
+    adapter_name="mentor",
+)
+
+# Before generation, activate the mentor adapter
+model.set_adapter("mentor")
 
 messages = [
     {
@@ -274,11 +288,13 @@ briefing = tokenizer.decode(outputs[0][inputs["input_ids"].shape[-1]:], skip_spe
 ```
 
 **Key details:**
+- Shared base with Model 2: load once, attach two LoRA adapters
+- `model.set_adapter("mentor")` before briefing generation
+- `model.set_adapter("scorer")` before priority scoring
 - Sampling: temperature=0.6, top_p=0.95
-- `enable_thinking=False` or system message `/no_think` to disable reasoning mode
-- 64K context (128K with YARN) -- easily fits all briefing context
+- `enable_thinking=False` for direct output, no reasoning
+- 131K context -- easily fits all briefing context
 - GGUF available for llama.cpp serving (Llama Champion badge)
-- vLLM compatible: `vllm serve HuggingFaceTB/SmolLM3-3B --enable-auto-tool-choice`
 
 ---
 
