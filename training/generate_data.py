@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
 import random
+import re
 from pathlib import Path
 
 from openai import OpenAI
+
+from training.utils import (
+    compute_sha256,
+    estimate_nim_cost,
+    save_data_manifest,
+    set_all_seeds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +221,6 @@ _GOAL_POOL = [
     "learning model evaluation and benchmarking",
 ]
 
-
 _MUTATION_SWAP_TERMS = [
     ("transformer", "attention mechanism"),
     ("LoRA", "adapter tuning"),
@@ -227,25 +235,47 @@ _MUTATION_SWAP_TERMS = [
 ]
 
 
-def _mutate_text(text: str) -> str:
+def _mutate_text(text: str, rng: random.Random) -> str:
     """Apply random term swaps to diversify text."""
-    swaps = random.sample(_MUTATION_SWAP_TERMS, k=min(2, len(_MUTATION_SWAP_TERMS)))
+    swaps = rng.sample(_MUTATION_SWAP_TERMS, k=min(2, len(_MUTATION_SWAP_TERMS)))
     for old, new in swaps:
-        if old in text and random.random() < 0.3:
+        if old in text and rng.random() < 0.3:
             text = text.replace(old, new, 1)
     return text
 
 
-def _generate_synthetic_pair() -> dict[str, object]:
+def _generate_synthetic_pair(rng: random.Random) -> dict[str, object]:
     """Generate a random synthetic content-goal pair with mutations."""
-    template = random.choice(_CONTENT_TEMPLATES)
-    num_goals = random.randint(1, 4)
-    goals = random.sample(_GOAL_POOL, num_goals)
+    template = rng.choice(_CONTENT_TEMPLATES)
+    num_goals = rng.randint(1, 4)
+    goals = rng.sample(_GOAL_POOL, num_goals)
     return {
-        "title": _mutate_text(template["title"]),
-        "summary": _mutate_text(template["summary"]),
+        "title": _mutate_text(template["title"], rng),
+        "summary": _mutate_text(template["summary"], rng),
         "goals": goals,
     }
+
+
+def _extract_json(text: str) -> dict | None:
+    """Extract JSON object from model response, handling markdown and preamble."""
+    # Try fenced code block
+    for pattern in (r"```json\s*(\{.*?\})\s*```", r"```\s*(\{.*?\})\s*```"):
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+    # Try first bare JSON object
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    return None
 
 
 def generate_training_example(
@@ -260,7 +290,7 @@ def generate_training_example(
 
     try:
         response = client.chat.completions.create(
-            model="nvidia/nemotron-3-ultra-550b-a55b",
+            model="nvidia/llama-3.3-nemotron-super-49b-v1",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
@@ -274,42 +304,98 @@ def generate_training_example(
 
     assistant_content = response.choices[0].message.content
 
-    # Validate JSON structure
+    parsed = _extract_json(assistant_content)
+    if parsed is None:
+        logger.warning("No JSON found in Nemotron response: %s", assistant_content[:200])
+        return None
+
     try:
-        parsed = json.loads(assistant_content)
         assert 1 <= parsed["score"] <= 10
         assert "rationale" in parsed
         assert "action" in parsed
-    except (json.JSONDecodeError, KeyError, AssertionError):
-        logger.warning("Malformed response from Nemotron: %s", assistant_content[:200])
+    except (KeyError, AssertionError) as e:
+        logger.warning("Malformed JSON from Nemotron: %s (%s)", assistant_content[:200], e)
         return None
 
     return {
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
-            {"role": "assistant", "content": assistant_content},
+            {"role": "assistant", "content": json.dumps(parsed, ensure_ascii=False)},
         ]
     }
 
 
-def generate_dataset(output_path: str, num_examples: int = 2000) -> None:
+def generate_dataset(
+    output_path: Path,
+    num_examples: int = 500,
+    eval_holdout: int = 50,
+    seed: int = 42,
+    dry_run: bool = False,
+) -> None:
     """Generate full training dataset and write to JSONL."""
     client = OpenAI(
         base_url="https://integrate.api.nvidia.com/v1",
         api_key=os.environ["NVIDIA_NIM_API_KEY"],
+        timeout=60,
     )
 
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    valid_count = 0
-    attempt = 0
+    eval_file = output_file.parent / "eval_holdout_scorer.jsonl"
 
-    with open(output_file, "w", encoding="utf-8") as f:
-        while valid_count < num_examples and attempt < num_examples * 3:
+    target_total = 3 if dry_run else num_examples
+    target_train = max(0, target_total - eval_holdout)
+
+    # Resume: count existing lines and fast-forward RNG
+    existing_train = 0
+    existing_eval = 0
+    if not dry_run:
+        if output_file.exists():
+            with open(output_file, encoding="utf-8") as f:
+                existing_train = sum(1 for _ in f if _.strip())
+        if eval_file.exists():
+            with open(eval_file, encoding="utf-8") as f:
+                existing_eval = sum(1 for _ in f if _.strip())
+
+    already_done = existing_train + existing_eval
+    if already_done >= target_total:
+        print(f"\nResume: {already_done} examples already exist. Nothing to do.")
+        return
+
+    # Fast-forward RNG to maintain determinism
+    rng = random.Random(seed)
+    for _ in range(already_done):
+        _generate_synthetic_pair(rng)
+
+    remaining = target_total - already_done
+
+    if dry_run:
+        print(f"\n[DRY RUN] Will generate {target_total} example(s) (no files written).")
+    else:
+        print(
+            f"\nResume: {already_done} already done. Generating {remaining} more ({target_train - existing_train} train + {eval_holdout - existing_eval} eval)"
+        )
+
+    # Cost estimate (only for remaining)
+    if not dry_run and not estimate_nim_cost(remaining):
+        print("Aborted by user.")
+        return
+
+    valid_count = already_done
+    attempt = 0
+    max_attempts = target_total * 3
+
+    # Open files in append mode for resume support
+    mode = "a" if already_done > 0 else "w"
+    train_f = open(output_file, mode, encoding="utf-8") if not dry_run else None  # noqa: SIM115
+    eval_f = open(eval_file, mode, encoding="utf-8") if not dry_run else None  # noqa: SIM115
+
+    try:
+        while valid_count < target_total and attempt < max_attempts:
             attempt += 1
-            pair = _generate_synthetic_pair()
+            pair = _generate_synthetic_pair(rng)
             result = generate_training_example(
                 client,
                 pair["title"],
@@ -317,14 +403,86 @@ def generate_dataset(output_path: str, num_examples: int = 2000) -> None:
                 pair["goals"],
             )
             if result is not None:
-                f.write(json.dumps(result, ensure_ascii=False) + "\n")
+                if valid_count < eval_holdout and not dry_run:
+                    eval_f.write(json.dumps(result, ensure_ascii=False) + "\n")
+                    eval_f.flush()
+                elif not dry_run:
+                    train_f.write(json.dumps(result, ensure_ascii=False) + "\n")
+                    train_f.flush()
                 valid_count += 1
-                if valid_count % 100 == 0:
-                    logger.info("Generated %d/%d valid examples", valid_count, num_examples)
+                if valid_count % 50 == 0 or dry_run:
+                    logger.info("Generated %d/%d valid examples", valid_count, target_total)
+    finally:
+        if train_f:
+            train_f.close()
+        if eval_f:
+            eval_f.close()
 
-    logger.info("Dataset complete: %d examples written to %s", valid_count, output_path)
+    if dry_run:
+        print(f"\nDry-run complete: {valid_count} valid examples generated.")
+        print(f"Cost would be: ~${valid_count * 0.005:.2f}")
+        print("Exiting without writing files.")
+        return
+
+    logger.info(
+        "Dataset complete: %d train + %d eval written to %s",
+        target_train,
+        eval_holdout,
+        output_file.parent,
+    )
+
+    # Manifest
+    data_hash = compute_sha256(output_file)
+    save_data_manifest(
+        output_path=output_file,
+        script="generate_data.py",
+        teacher_model="nvidia/llama-3.3-nemotron-super-49b-v1",
+        total_attempts=attempt,
+        valid_examples=valid_count,
+        output_file=output_file,
+        data_hash=data_hash,
+        estimated_cost=f"${valid_count * 0.005:.2f}",
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate scorer distillation data via Nemotron Ultra"
+    )
+    parser.add_argument(
+        "--num-examples",
+        type=int,
+        default=500,
+        help="Total examples to generate (including eval holdout)",
+    )
+    parser.add_argument(
+        "--eval-holdout", type=int, default=50, help="Number of examples to reserve for eval"
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="training/data/distillation_data.jsonl",
+        help="Output JSONL path",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Process 3 examples, print cost estimate, exit"
+    )
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+    )
+    set_all_seeds(args.seed)
+
+    generate_dataset(
+        output_path=Path(args.output),
+        num_examples=args.num_examples,
+        eval_holdout=args.eval_holdout,
+        seed=args.seed,
+        dry_run=args.dry_run,
+    )
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    generate_dataset("training/data/distillation_data.jsonl", num_examples=500)
+    main()
