@@ -30,8 +30,10 @@ class MockPrioritizer(PrioritizerModel):
         pass
 
     def score(self, content: ContentItem, goals: list[Goal]) -> ScoredItem:
-        primary = max(goals, key=lambda g: g.priority) if goals else Goal(
-            id=0, goal_text="general", priority=3, is_active=True
+        primary = (
+            max(goals, key=lambda g: g.priority)
+            if goals
+            else Goal(id=0, goal_text="general", priority=3, is_active=True)
         )
         return ScoredItem(
             content=content,
@@ -111,9 +113,7 @@ def test_full_pipeline_mocked(seeded_db: Database, mock_config: LearnLensConfig)
     prioritizer = MockPrioritizer(mock_config)
     mentor = MockMentor(mock_config)
 
-    briefing = generate_daily_briefing(
-        seeded_db, connector, prioritizer, mentor, mock_config
-    )
+    briefing = generate_daily_briefing(seeded_db, connector, prioritizer, mentor, mock_config)
 
     # Verify briefing was generated and stored
     assert "Daily Briefing" in briefing
@@ -131,7 +131,9 @@ def test_full_pipeline_mocked(seeded_db: Database, mock_config: LearnLensConfig)
 
 
 @pytest.mark.integration
-def test_find_similar_with_real_embeddings(seeded_db: Database, mock_config: LearnLensConfig) -> None:
+def test_find_similar_with_real_embeddings(
+    seeded_db: Database, mock_config: LearnLensConfig
+) -> None:
     """Test similarity search with real embeddings."""
     from learnlens.pipeline.embedding import embed_new_content, find_similar
 

@@ -15,7 +15,9 @@ def create(db: Database, config: LearnLensConfig) -> None:
         gr.Markdown("Track patterns you want to avoid repeating.")
 
         with gr.Row():
-            pattern_input = gr.Textbox(label="Pattern", placeholder="e.g., forgot to freeze embeddings")
+            pattern_input = gr.Textbox(
+                label="Pattern", placeholder="e.g., forgot to freeze embeddings"
+            )
             desc_input = gr.Textbox(label="Description", placeholder="Detailed description...")
             severity_input = gr.Slider(1, 5, value=3, step=1, label="Severity")
 

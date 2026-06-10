@@ -23,7 +23,7 @@ def _extract_title_from_metadata(metadata: str | None, fallback: str) -> str:
     if metadata:
         import re
 
-        match = re.search(r'<title[^>]*>(.*?)</title>', metadata, re.S)
+        match = re.search(r"<title[^>]*>(.*?)</title>", metadata, re.S)
         if match:
             return clean_text(match.group(1))
     first_line = fallback.strip().split("\n")[0]

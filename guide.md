@@ -48,8 +48,11 @@ learnlens/
 ├── training/                       # Model training (not part of main package)
 │   ├── generate_data.py            # Nemotron distillation data generation (scorer)
 │   ├── generate_mentor_data.py     # Nemotron distillation data generation (mentor)
-│   ├── train_prioritizer.py        # LoRA fine-tuning scorer adapter on Modal
-│   ├── train_mentor.py             # LoRA fine-tuning mentor adapter on Modal
+│   ├── generate_candidates.py      # Student generates N candidates per prompt (Best-of-N)
+│   ├── judge_candidates.py         # Nemotron Ultra judges and picks best candidate
+│   ├── train_prioritizer.py        # LoRA SFT scorer adapter on Modal
+│   ├── train_mentor.py             # LoRA SFT mentor adapter on Modal
+│   ├── evaluate.py                 # Compare SFT vs Best-of-N vs Combined adapters
 │   └── export_gguf.py              # GGUF conversion for llama.cpp
 │
 ├── configs/
@@ -76,6 +79,23 @@ learnlens/
 │
 ├── data/                           # Local data directory (gitignored)
 │   └── learnlens.db                # SQLite database (created at runtime)
+│
+├── training/data/                  # Training data (gitignored, pushed to HF Hub)
+│   ├── distillation_data.jsonl     # Scorer SFT data from Nemotron Ultra
+│   ├── mentor_data.jsonl           # Mentor SFT data from Nemotron Ultra
+│   ├── scorer_candidates.jsonl     # Best-of-N student candidates
+│   ├── scorer_best.jsonl           # Best-of-N curated (judge-picked)
+│   ├── mentor_candidates.jsonl
+│   ├── mentor_best.jsonl
+│   ├── eval_holdout.jsonl          # 50 held-out eval prompts (never train on these)
+│   └── data_manifest.json          # Generation stats (counts, cost, hash)
+│
+├── training/output/                # Training outputs (gitignored, pushed to HF Hub)
+│   ├── scorer-sft-v1/              # Adapter + TensorBoard logs + run_metadata.json
+│   ├── mentor-sft-v1/
+│   ├── scorer-bon-v1/
+│   ├── scorer-combined-v1/
+│   └── eval_results.json           # Comparison table across all experiments
 │
 ├── pyproject.toml                  # Project metadata, dependencies, tools
 ├── uv.lock                         # Locked dependency versions
@@ -771,13 +791,22 @@ uv run ruff format .
 
 ## Training Pipeline
 
-# Generate distillation data (requires NVIDIA_NIM_API_KEY)
+# Phase 1: Generate distillation data (requires NVIDIA_NIM_API_KEY)
 uv run python training/generate_data.py
 uv run python training/generate_mentor_data.py
 
-# Fine-tune on Modal (requires modal setup)
+# Phase 2: Experiment A -- SFT (requires Modal + HF secrets)
 modal run training/train_prioritizer.py
 modal run training/train_mentor.py
+
+# Phase 3: Experiment B/C -- Best-of-N refinement
+modal run training/generate_candidates.py
+uv run python training/judge_candidates.py
+modal run training/train_prioritizer.py --data=training/data/scorer_best.jsonl
+modal run training/train_mentor.py --data=training/data/mentor_best.jsonl
+
+# Phase 4: Evaluate all variants
+modal run training/evaluate.py
 
 ## Project Structure
 
@@ -787,6 +816,18 @@ modal run training/train_mentor.py
 - learnlens/ui/ -- Gradio tab components
 - training/ -- Model training scripts (not part of main package)
 
+## Experiment Tracking
+
+# Run naming: {task}-{experiment}-v{N}
+# Examples: scorer-sft-v1, mentor-bon-v1, scorer-combined-v1
+
+# All adapters + logs pushed to: huggingface.co/sarthakbiswas/
+# All training data pushed to: huggingface.co/sarthakbiswas/learnlens-training-data
+
+# Always dry-run first:
+uv run python training/generate_data.py --dry-run
+modal run training/train_prioritizer.py --dry-run
+
 ## Conventions
 
 - Type annotations on all functions
@@ -795,6 +836,9 @@ modal run training/train_mentor.py
 - pathlib.Path, never os.path
 - Parameterized SQL queries only
 - 200-400 lines per file, 800 max
+- seed=42 in all training scripts
+- --dry-run before every real run
+- hash training data, log hash in run metadata
 ```
 
 ---

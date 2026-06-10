@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import subprocess
 import sys
@@ -52,8 +53,7 @@ def export_gguf(
     convert_script = Path("llama.cpp/convert_hf_to_gguf.py")
     if not convert_script.exists():
         logger.error(
-            "convert_hf_to_gguf.py not found at %s. "
-            "Please clone llama.cpp and run from repo root.",
+            "convert_hf_to_gguf.py not found at %s. Please clone llama.cpp and run from repo root.",
             convert_script,
         )
         sys.exit(1)
@@ -73,15 +73,16 @@ def export_gguf(
     logger.info("GGUF exported to %s", output_file)
 
 
-if __name__ == "__main__":
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Export LoRA adapter to GGUF")
+    parser.add_argument("--adapter-id", type=str, required=True, help="HuggingFace adapter ID")
+    parser.add_argument("--output", type=str, required=True, help="Output GGUF path")
+    parser.add_argument("--quantization", type=str, default="Q4_K_M", help="Quantization type")
+    args = parser.parse_args()
+
     logging.basicConfig(level=logging.INFO)
-    # Export scorer adapter
-    export_gguf(
-        adapter_id="sarthakbiswas/learnlens-scorer-lora",
-        output_path="training/output/learnlens-scorer.gguf",
-    )
-    # Export mentor adapter
-    export_gguf(
-        adapter_id="sarthakbiswas/learnlens-mentor-lora",
-        output_path="training/output/learnlens-mentor.gguf",
-    )
+    export_gguf(args.adapter_id, args.output, args.quantization)
+
+
+if __name__ == "__main__":
+    main()

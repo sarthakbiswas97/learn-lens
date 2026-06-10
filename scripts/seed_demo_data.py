@@ -45,7 +45,11 @@ DEMO_GOALS = [
 ]
 
 DEMO_MISTAKES = [
-    ("forgot to freeze embeddings", "Did not freeze pretrained embeddings during fine-tuning, causing catastrophic forgetting.", 4),
+    (
+        "forgot to freeze embeddings",
+        "Did not freeze pretrained embeddings during fine-tuning, causing catastrophic forgetting.",
+        4,
+    ),
     ("wrong learning rate", "Used lr=1e-3 for a 7B model fine-tune, causing divergence.", 5),
 ]
 

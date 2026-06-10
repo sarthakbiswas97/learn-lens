@@ -409,73 +409,158 @@ The first thing you see when you open LearnLens. Not a dashboard, not a graph --
 
 ---
 
-## 8. Training Pipeline (Dual LoRA Knowledge Distillation)
+## 8. Training Pipeline (3-Experiment Distillation)
 
 ### Why Distillation?
 
 MiniCPM5-1B out of the box is a general-purpose model. It does not know how to score learning content against goals, nor how to generate opinionated briefings. We need to teach it both behaviors via two specialized LoRA adapters.
 
-Options:
-1. **Manual annotation**: Label 2000+ examples by hand -- too slow for hackathon
-2. **Prompt engineering**: Use MiniCPM5-1B with detailed system prompts -- output quality is inconsistent at 1B for both tasks
-3. **Knowledge distillation**: Use Nemotron-Ultra-550B (teacher) to generate gold labels, then fine-tune MiniCPM5-1B (student) with dual LoRA adapters -- best quality, automated, targets NVIDIA sponsor prize
+### Why Not Token-Level GKD?
 
-### Adapter 1: Scorer (Prioritizer)
+MiniCPM4.1-8B (the natural teacher from the same family) uses a **different vocabulary** (73,448 tokens) and **different architecture** (MiniCPMForCausalLM) than MiniCPM5-1B (130,560 tokens, LlamaForCausalLM). Token-level KL divergence requires matching vocabulary dimensions, so GKD (Generalized Knowledge Distillation) is impossible with this pair.
 
-```
-Step 1: Generate synthetic content-goal pairs (40+ templates, 20 goals)
-                    |
-                    v
-Step 2: Send to Nemotron-Ultra-550B via NVIDIA NIM API
-        (system prompt: "You are a learning prioritization expert")
-        (output: JSON with score, rationale, action)
-                    |
-                    v
-Step 3: Validate and filter responses
-                    |
-                    v
-Step 4: LoRA fine-tune MiniCPM5-1B
-        (TRL SFTTrainer, r=16, alpha=32, max_seq_length=2048)
-        (Modal A10G, ~30 min, ~$5-10)
-                    |
-                    v
-Step 5: Push adapter to HuggingFace Hub
-        (sarthakbiswas/learnlens-scorer-lora)
-```
+Instead, we use Nemotron Ultra 550B as a **black-box teacher** for data generation and as a **judge** for Best-of-N selection. Both roles are API-only (no logits needed).
 
-### Adapter 2: Mentor (Briefing Generator)
+### Three Experiments
+
+We compare three distillation approaches to find the best adapter:
+
+| Experiment | Method | Data Source | KL Direction |
+|-----------|--------|------------|-------------|
+| **A: SFT** | Supervised fine-tuning on teacher outputs | Nemotron Ultra generates text | Forward KL (mode-covering) |
+| **B: Best-of-N** | SFT on student's own best outputs | Student generates, Nemotron judges | Implicit reverse KL (mode-seeking) |
+| **C: SFT + Best-of-N** | SFT first, then refine on best self-outputs | Both | Combined (best of both worlds) |
+
+### Experiment A: Synthetic Data SFT
 
 ```
-Step 1: Generate synthetic briefing contexts
-        (goals + scored items + forgotten items + mistakes)
+Step 1: Generate synthetic prompts (40+ content templates, 20 goals)
                     |
                     v
-Step 2: Send to Nemotron-Ultra-550B via NVIDIA NIM API
-        (system prompt: "You are an opinionated learning mentor")
-        (output: markdown briefing with 4 sections)
+Step 2: Nemotron Ultra 550B generates gold responses (NIM API)
+        Scorer: JSON {score, rationale, action}
+        Mentor: markdown briefing with 4 sections
                     |
                     v
-Step 3: Validate all 4 sections present
+Step 3: Validate and filter (JSON parse, section check)
                     |
                     v
-Step 4: LoRA fine-tune MiniCPM5-1B
-        (TRL SFTTrainer, r=32, alpha=64, max_seq_length=4096)
-        (Modal A10G, ~30 min, ~$5-10)
+Step 4: LoRA SFT on MiniCPM5-1B (Modal A10G, ~30 min each)
+        Scorer: r=16, alpha=32, max_seq=2048
+        Mentor: r=32, alpha=64, max_seq=4096
                     |
                     v
-Step 5: Push adapter to HuggingFace Hub
-        (sarthakbiswas/learnlens-mentor-lora)
+Step 5: Push adapters to HuggingFace Hub
 ```
+
+### Experiment B: Best-of-N with Nemotron Judge
+
+```
+Step 1: Load MiniCPM5-1B (base, no adapter) on Modal A10G
+        Generate N=4 candidate responses per prompt (temperature=0.7)
+                    |
+                    v
+Step 2: Nemotron Ultra 550B judges each candidate (NIM API)
+        Scorer: rate JSON validity, score reasonableness, rationale quality
+        Mentor: rate section completeness, directness, specificity
+        Returns index of best candidate per prompt
+                    |
+                    v
+Step 3: Build curated dataset from best candidates only
+                    |
+                    v
+Step 4: LoRA SFT on curated on-policy data (Modal A10G, ~30 min each)
+                    |
+                    v
+Step 5: Push adapters to HuggingFace Hub
+```
+
+### Experiment C: Combined (SFT then Best-of-N Refinement)
+
+```
+Step 1: Start from SFT adapter (Experiment A output)
+                    |
+                    v
+Step 2: SFT'd student generates N=4 candidates per prompt (Modal A10G)
+                    |
+                    v
+Step 3: Nemotron Ultra 550B judges, picks best candidate (NIM API)
+                    |
+                    v
+Step 4: LoRA SFT refinement with lower LR (5e-5) on curated data
+                    |
+                    v
+Step 5: Push final adapters to HuggingFace Hub
+```
+
+### Evaluation
+
+Compare all 3 experiments on 50 held-out prompts. Nemotron Ultra scores the same prompts as ground truth.
+
+| Metric (Scorer) | What It Measures |
+|-----------------|-----------------|
+| JSON parse rate | Format compliance |
+| Score correlation (Pearson r) | Agreement with Nemotron Ultra |
+| Score variance (std over 3 runs) | Consistency |
+
+| Metric (Mentor) | What It Measures |
+|-----------------|-----------------|
+| Section completeness | All 4 headers present |
+| Average token count | Conciseness |
+| Directness | Manual spot-check on 10 samples |
 
 ### Data Generation Strategy
 
-Generate diverse examples across:
-- **Content types**: ML papers, blog posts, documentation, tutorials, news articles, social media threads
-- **Goal types**: "learning post-training", "preparing for interviews", "building a RAG system", "understanding transformers"
-- **Score distribution**: Ensure roughly uniform distribution across 1-10 (avoid all-high-score bias)
-- **Edge cases**: Content that seems relevant but is not (clickbait), content that seems irrelevant but is (foundational knowledge)
+40+ content templates across: ML papers, blog posts, documentation, tutorials, news, social media, irrelevant content (cooking, sports). 20 goals covering post-training, RAG, interviews, PyTorch, MLOps, etc. Term mutations for diversity. Target: 500 examples per task (scorer + mentor).
 
-Target: 2000 examples minimum, 5000 if API budget allows.
+### Cost Estimate
+
+| Phase | Modal | NIM API | Total |
+|-------|-------|---------|-------|
+| Data generation | $0 | ~$3-5 | ~$5 |
+| Experiment A (SFT) | ~$1.10 | $0 | ~$1 |
+| Experiment B (Best-of-N) | ~$2.10 | ~$3 | ~$5 |
+| Experiment C (Combined) | ~$1.10 | $0 | ~$1 |
+| Evaluation | ~$1.50 | ~$1 | ~$2.50 |
+| Buffer (5x reruns) | ~$30 | ~$35 | ~$65 |
+| **Worst case total** | | | **~$80** |
+
+### Experiment Tracking and Reproducibility
+
+Every training run is tracked. No "I ran something last night but I don't remember the settings."
+
+**What we track and where:**
+- **TensorBoard logs** -- pushed to HF Hub alongside each adapter. View at `huggingface.co/sarthakbiswas/learnlens-scorer-sft-v1` -> Training Metrics tab. Auto-logged by TRL: train loss, eval loss, learning rate, grad norm, token accuracy, entropy.
+- **Run metadata JSON** -- hyperparameters, data hash, final loss, git commit. Pushed with each adapter.
+- **Data manifest JSON** -- generation stats (attempts, accepts, rejects, cost). Pushed to `sarthakbiswas/learnlens-training-data`.
+- **Eval results JSON** -- comparison table across all experiments. Single source of truth for which adapter won.
+
+**Why not MLflow?** Modal functions are ephemeral containers. Running an MLflow tracking server adds infra complexity we don't need. TensorBoard logs + HF Hub artifacts give us the same capability with zero infrastructure.
+
+**Run naming:** `{task}-{experiment}-v{N}` (e.g., `scorer-sft-v1`, `mentor-combined-v1`). Version bumps when any hyperparameter or data changes.
+
+### Credit Guardrails
+
+Total budget: $280 Modal + NIM free tier. Expected spend: ~$15. But one infinite loop or wrong batch size could waste $50.
+
+Guardrails built into every script:
+1. **Dry-run mode** (`--dry-run`): process 3 examples, validate format, print cost estimate, exit
+2. **Modal timeouts**: 1 hour max per function. Auto-kill on hang.
+3. **NIM API cost confirmation**: scripts print estimated cost and ask before proceeding
+4. **Data validation before GPU load**: parse every JSONL line before model.from_pretrained()
+5. **Modal spending alert**: set $50 alert in Modal dashboard
+
+### Prerequisites
+
+Before starting training, you need:
+
+1. **NVIDIA NIM API key** -- sign up at build.nvidia.com, set as `NVIDIA_NIM_API_KEY`
+2. **HuggingFace token** (write access) -- set as `HF_TOKEN`
+3. **Modal account** with secrets configured:
+   - `modal secret create huggingface HF_TOKEN=hf_xxx`
+   - `modal secret create nvidia NVIDIA_NIM_API_KEY=nvapi-xxx`
+4. **Modal CLI** installed and authenticated: `pip install modal && modal setup`
+5. **Modal spending limit** -- set $50 alert in Modal dashboard (Settings -> Spending Limits)
 
 ---
 

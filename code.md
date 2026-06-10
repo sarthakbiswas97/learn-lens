@@ -67,15 +67,23 @@
 
 **Milestone:** Can embed content and find similar items.
 
-### Phase 3: Training Pipeline (Day 3-4)
+### Phase 3: Training Pipeline (Day 3-5)
 
-1. `training/generate_data.py` -- Nemotron data generation for scorer via NIM API
-2. `training/generate_mentor_data.py` -- Nemotron data generation for mentor via NIM API
-3. `training/train_prioritizer.py` -- LoRA fine-tune scorer adapter on Modal
-4. `training/train_mentor.py` -- LoRA fine-tune mentor adapter on Modal
-5. Push both adapters to HuggingFace Hub
+**Experiment A -- SFT:**
+1. `training/generate_data.py` -- Nemotron Ultra 550B generates scorer training data (NIM API)
+2. `training/generate_mentor_data.py` -- Nemotron Ultra 550B generates mentor training data (NIM API)
+3. `training/train_prioritizer.py` -- LoRA SFT scorer adapter on Modal A10G
+4. `training/train_mentor.py` -- LoRA SFT mentor adapter on Modal A10G
 
-**Milestone:** Have both LoRA adapters (scorer + mentor) on HF Hub.
+**Experiment B/C -- Best-of-N refinement:**
+5. `training/generate_candidates.py` -- SFT'd student generates N=4 candidates per prompt (Modal A10G)
+6. `training/judge_candidates.py` -- Nemotron Ultra 550B judges and picks best candidate (NIM API)
+7. Re-run train scripts on curated Best-of-N data
+
+**Evaluation:**
+8. `training/evaluate.py` -- Compare SFT vs Best-of-N vs Combined on 50 held-out prompts
+
+**Milestone:** Best adapter variant identified and pushed to HF Hub.
 
 ### Phase 4: Scoring + Briefing (Day 4-5)
 
@@ -469,185 +477,258 @@ def cosine_search(
 
 ---
 
-## 6. Knowledge Distillation Pipeline
+## 6. Training Pipeline (3 Experiments)
 
-### Step 1: Generate Training Data from Nemotron
+### Prerequisites (action required before training)
 
-```python
-# training/generate_data.py
-import json
-import os
-from openai import OpenAI
+| # | What | How |
+|---|------|-----|
+| 1 | NVIDIA NIM API key | Sign up at build.nvidia.com, set `NVIDIA_NIM_API_KEY` in `.env` |
+| 2 | HuggingFace token (write) | Create at huggingface.co/settings/tokens, set `HF_TOKEN` in `.env` |
+| 3 | Modal CLI | `pip install modal && modal setup` |
+| 4 | Modal HF secret | `modal secret create huggingface HF_TOKEN=hf_xxx` |
+| 5 | Modal NVIDIA secret | `modal secret create nvidia NVIDIA_NIM_API_KEY=nvapi-xxx` |
 
-client = OpenAI(
-    base_url="https://integrate.api.nvidia.com/v1",
-    api_key=os.environ["NVIDIA_NIM_API_KEY"],
-)
+### Vocabulary Mismatch Note
 
-SYSTEM_PROMPT = """You are a learning prioritization expert. Given a piece of learning content \
-and a set of learning goals, assess how relevant and important this content is for the learner.
+MiniCPM4.1-8B (73,448 vocab, MiniCPMForCausalLM) and MiniCPM5-1B (130,560 vocab, LlamaForCausalLM) have incompatible vocabularies. Token-level GKD (Generalized Knowledge Distillation) is impossible with this pair. We use Nemotron Ultra 550B as a black-box teacher and judge instead.
 
-Output a JSON object with exactly these fields:
-- "score": integer 1-10 (1=irrelevant, 10=critical to read immediately)
-- "rationale": one sentence explaining why this score
-- "action": one sentence suggesting what the learner should do
+### Pipeline Overview
 
-Be honest and opinionated. Score low if content is tangential. Score high only if it directly \
-advances a stated goal. Consider recency, depth, and practical applicability."""
+```
+Phase 1: DATA GENERATION (NIM API, no GPU)
+  Nemotron Ultra 550B --> scorer JSONL + mentor JSONL
 
-def generate_training_example(
-    content_title: str,
-    content_summary: str,
-    goals: list[str],
-) -> dict | None:
-    """Generate a single training example using Nemotron as teacher."""
-    goals_text = "\n".join(f"- {g}" for g in goals)
-    user_prompt = f"Content: {content_title}\n{content_summary}\n\nLearning Goals:\n{goals_text}"
+Phase 2: EXPERIMENT A -- SFT (Modal A10G)
+  JSONL data --> LoRA SFT on MiniCPM5-1B --> push adapters
 
-    response = client.chat.completions.create(
-        model="nvidia/nemotron-3-ultra-550b-a55b",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.5,
-        max_tokens=512,
-    )
+Phase 3: EXPERIMENT B/C -- Best-of-N (Modal A10G + NIM API)
+  SFT'd student generates N=4 candidates --> Nemotron judges --> SFT on best
 
-    assistant_content = response.choices[0].message.content
+Phase 4: EVALUATION (Modal A10G + NIM API)
+  Run all 3 variants on 50 held-out prompts --> compare metrics
 
-    # Validate JSON structure
-    try:
-        parsed = json.loads(assistant_content)
-        assert 1 <= parsed["score"] <= 10
-        assert "rationale" in parsed
-        assert "action" in parsed
-    except (json.JSONDecodeError, KeyError, AssertionError):
-        return None
-
-    return {
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-            {"role": "assistant", "content": assistant_content},
-        ]
-    }
-
-
-def generate_dataset(output_path: str, num_examples: int = 2000) -> None:
-    """Generate full training dataset."""
-    # ... iterate over synthetic content-goal pairs
-    # ... call generate_training_example for each
-    # ... write valid examples to JSONL
-    with open(output_path, "w") as f:
-        for example in examples:
-            result = generate_training_example(
-                example["title"],
-                example["summary"],
-                example["goals"],
-            )
-            if result is not None:
-                f.write(json.dumps(result) + "\n")
+Phase 5: DEPLOY
+  Best adapter --> update config --> HF Spaces
 ```
 
-### Step 2: LoRA Fine-Tuning on Modal
+### Phase 1: Data Generation
 
-```python
-# training/train_prioritizer.py
-import modal
+Scripts: `training/generate_data.py`, `training/generate_mentor_data.py`
+Runs on: any machine with internet (just NIM API calls, no GPU)
+Teacher model: `nvidia/nemotron-3-ultra-550b-a55b` via `https://integrate.api.nvidia.com/v1`
 
-app = modal.App("learnlens-training")
-
-image = (
-    modal.Image.debian_slim(python_version="3.11")
-    .pip_install(
-        "torch>=2.7",
-        "transformers>=5.6",
-        "trl>=0.21",
-        "peft>=0.15",
-        "datasets>=3.0",
-        "accelerate>=1.0",
-        "bitsandbytes>=0.45",
-    )
-)
-
-@app.function(
-    gpu="A10G",
-    timeout=3600,
-    image=image,
-    secrets=[modal.Secret.from_name("huggingface")],
-)
-def train():
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    from peft import LoraConfig
-    from trl import SFTConfig, SFTTrainer
-    from datasets import load_dataset
-
-    # Load base model
-    model = AutoModelForCausalLM.from_pretrained(
-        "openbmb/MiniCPM5-1B",
-        torch_dtype="auto",
-        device_map="auto",
-    )
-    tokenizer = AutoTokenizer.from_pretrained("openbmb/MiniCPM5-1B")
-
-    # LoRA config
-    lora_config = LoraConfig(
-        r=16,
-        lora_alpha=32,
-        lora_dropout=0.05,
-        bias="none",
-        task_type="CAUSAL_LM",
-        target_modules=[
-            "q_proj", "k_proj", "v_proj", "o_proj",
-            "gate_proj", "up_proj", "down_proj",
-        ],
-    )
-
-    # Load distillation data
-    dataset = load_dataset("json", data_files="distillation_data.jsonl", split="train")
-
-    # Training config
-    training_config = SFTConfig(
-        output_dir="./output",
-        num_train_epochs=3,
-        per_device_train_batch_size=4,
-        gradient_accumulation_steps=4,
-        learning_rate=2e-4,
-        lr_scheduler_type="cosine",
-        warmup_ratio=0.03,
-        bf16=True,
-        logging_steps=10,
-        save_strategy="epoch",
-        max_seq_length=2048,
-        dataset_text_field=None,  # using messages format
-    )
-
-    # Train
-    trainer = SFTTrainer(
-        model=model,
-        args=training_config,
-        train_dataset=dataset,
-        peft_config=lora_config,
-        processing_class=tokenizer,
-    )
-
-    trainer.train()
-
-    # Merge and push
-    merged_model = trainer.model.merge_and_unload()
-    merged_model.push_to_hub("sarthakbiswas/learnlens-prioritizer")
-    tokenizer.push_to_hub("sarthakbiswas/learnlens-prioritizer")
+Scorer data format (JSONL):
+```json
+{"messages": [
+  {"role": "system", "content": "You are a learning prioritization expert..."},
+  {"role": "user", "content": "Content: <title>\n<summary>\n\nLearning Goals:\n- <goal1>..."},
+  {"role": "assistant", "content": "{\"score\": 8, \"rationale\": \"...\", \"action\": \"...\"}"}
+]}
 ```
 
-### Cost Estimates
+Mentor data format (JSONL):
+```json
+{"messages": [
+  {"role": "system", "content": "You are an opinionated learning mentor..."},
+  {"role": "user", "content": "# Your Learning Context\n## Your Goals\n..."},
+  {"role": "assistant", "content": "## Today's Focus\n...\n## You're Forgetting\n..."}
+]}
+```
 
-| Resource | Cost |
-|----------|------|
-| NVIDIA NIM API (2000 examples) | ~$0-2 (free tier: 1000 credits) |
-| Modal A10G (30 min training) | ~$5-10 of $250 credits |
-| HuggingFace Hub storage | Free |
-| **Total** | **~$5-12** |
+### Phase 2: Experiment A -- SFT
+
+Scripts: `training/train_prioritizer.py`, `training/train_mentor.py`
+Runs on: Modal A10G (24GB VRAM)
+Pushes adapter-only weights (not merged) to HF Hub.
+
+### Phase 3: Best-of-N Refinement
+
+**Step 3a -- Student generates candidates:**
+Script: `training/generate_candidates.py` (NEW, runs on Modal A10G)
+- Load MiniCPM5-1B + SFT adapter from Phase 2
+- For each training prompt, generate N=4 responses with temperature=0.7
+- Output: `training/data/scorer_candidates.jsonl`, `training/data/mentor_candidates.jsonl`
+
+**Step 3b -- Nemotron Ultra judges candidates:**
+Script: `training/judge_candidates.py` (NEW, runs anywhere, NIM API calls)
+- Send each prompt + 4 candidates to Nemotron Ultra 550B
+- Judge picks the best candidate per prompt
+- Output: `training/data/scorer_best.jsonl`, `training/data/mentor_best.jsonl`
+
+**Step 3c -- SFT on curated data:**
+Same training scripts as Phase 2, but with curated Best-of-N data.
+For Experiment C: start from SFT adapter (Phase 2) with lower LR (5e-5).
+
+### Phase 4: Evaluation
+
+Script: `training/evaluate.py` (NEW, runs on Modal A10G)
+- 50 held-out prompts (reserved from templates, not used in training)
+- Nemotron Ultra scores the same prompts as ground truth
+- Run all 3 adapter variants, compare metrics
+- Output: results table in stdout + saved to `training/output/eval_results.json`
+
+### Cost Estimate
+
+| Phase | Modal | NIM API | Total |
+|-------|-------|---------|-------|
+| Data generation | $0 | ~$3-5 | ~$5 |
+| Experiment A (SFT) | ~$1.10 | $0 | ~$1 |
+| Experiment B/C (Best-of-N) | ~$3.20 | ~$3 | ~$6 |
+| Evaluation | ~$1.50 | ~$1 | ~$2.50 |
+| Buffer (5x reruns) | ~$30 | ~$35 | ~$65 |
+| **Worst case total** | | | **~$80** |
+
+Budget available: $280 Modal + NIM free tier. Comfortable headroom.
+
+### Credit Guardrails
+
+Every script must prevent accidental credit waste:
+
+**Dry-run mode:** All scripts support `--dry-run` that processes 3 examples, prints cost estimate, and exits. Always dry-run before a real run.
+```bash
+uv run python training/generate_data.py --dry-run        # test 3 NIM API calls
+modal run training/train_prioritizer.py --dry-run         # train 3 steps, validate data format
+```
+
+**Data validation before GPU:** Training scripts validate the JSONL format (parse every line, check required fields) before loading the model. Fail fast on bad data, not after 10 minutes of model loading.
+
+**Modal timeouts:** Every `@app.function` has `timeout=3600` (1 hour). If a training job hangs, it auto-terminates. No runaway charges.
+
+**NIM API cost estimator:** Data generation scripts print estimated cost before running:
+```
+Estimated: 500 calls x ~$0.005/call = ~$2.50
+Proceed? [y/N]
+```
+
+**Modal spending limit:** Set in Modal dashboard (Settings -> Spending Limits). Recommend setting a $50 alert.
+
+**Checkpoint recovery:** `save_strategy="epoch"` in SFTConfig. If a Modal job crashes at epoch 2.5, restart from epoch 2 checkpoint instead of from scratch.
+
+### Experiment Tracking
+
+**Run naming convention:** `{task}-{experiment}-v{N}`
+- `scorer-sft-v1`, `mentor-sft-v1` -- SFT runs
+- `scorer-bon-v1`, `mentor-bon-v1` -- Best-of-N runs
+- `scorer-combined-v1`, `mentor-combined-v1` -- Combined runs
+
+**TensorBoard logging (automatic):** Set `report_to="tensorboard"` in SFTConfig. TRL logs automatically:
+- Training loss (cross-entropy per step)
+- Eval loss (if eval split provided)
+- Learning rate curve (shows scheduler)
+- Gradient norm (training stability)
+- Mean token accuracy (prediction quality)
+- Entropy (model confidence)
+
+**Run metadata (manual, saved alongside adapter):** Each training run saves a `run_metadata.json`:
+```json
+{
+  "run_name": "scorer-sft-v1",
+  "experiment": "sft",
+  "task": "scorer",
+  "base_model": "openbmb/MiniCPM5-1B",
+  "data_file": "distillation_data.jsonl",
+  "data_hash": "sha256:abc123...",
+  "data_size": 500,
+  "lora_r": 16,
+  "lora_alpha": 32,
+  "learning_rate": 2e-4,
+  "epochs": 3,
+  "batch_size": 4,
+  "grad_accum": 4,
+  "max_seq_length": 2048,
+  "seed": 42,
+  "modal_gpu": "A10G",
+  "training_time_sec": 1800,
+  "final_train_loss": 0.45,
+  "git_commit": "abc1234"
+}
+```
+
+**Data generation manifest:** Each data generation run saves a `data_manifest.json`:
+```json
+{
+  "script": "generate_data.py",
+  "teacher_model": "nvidia/nemotron-3-ultra-550b-a55b",
+  "total_attempts": 620,
+  "valid_examples": 500,
+  "reject_rate": 0.19,
+  "output_file": "training/data/distillation_data.jsonl",
+  "data_hash": "sha256:abc123...",
+  "estimated_cost": "$2.50",
+  "timestamp": "2026-06-09T14:00:00Z"
+}
+```
+
+### HuggingFace Hub Structure
+
+All artifacts pushed to `huggingface.co/sarthakbiswas/`:
+
+```
+sarthakbiswas/
+├── learnlens-scorer-sft-v1          # Experiment A scorer adapter
+│   ├── adapter_config.json
+│   ├── adapter_model.safetensors
+│   ├── tokenizer.json
+│   ├── run_metadata.json            # hyperparams, data hash, loss
+│   └── runs/                        # TensorBoard logs
+│       └── events.out.tfevents.*
+│
+├── learnlens-mentor-sft-v1          # Experiment A mentor adapter
+│   └── (same structure)
+│
+├── learnlens-scorer-bon-v1          # Experiment B scorer adapter
+│   └── (same structure)
+│
+├── learnlens-scorer-combined-v1     # Experiment C scorer adapter
+│   └── (same structure)
+│
+├── learnlens-mentor-combined-v1     # Experiment C mentor adapter
+│   └── (same structure)
+│
+├── learnlens-training-data          # Dataset repo
+│   ├── distillation_data.jsonl      # Scorer SFT data
+│   ├── mentor_data.jsonl            # Mentor SFT data
+│   ├── scorer_candidates.jsonl      # Best-of-N candidates
+│   ├── scorer_best.jsonl            # Best-of-N curated
+│   ├── mentor_candidates.jsonl
+│   ├── mentor_best.jsonl
+│   ├── eval_holdout.jsonl           # 50 held-out eval prompts
+│   ├── eval_results.json            # Comparison table
+│   └── data_manifest.json           # Generation stats
+│
+└── learnlens-scorer-gguf            # GGUF export (best adapter)
+    └── learnlens-scorer-Q4_K_M.gguf
+```
+
+The final winning adapters (after evaluation) are also pushed without version suffix as:
+- `sarthakbiswas/learnlens-scorer-lora` (config.py default)
+- `sarthakbiswas/learnlens-mentor-lora` (config.py default)
+
+### ML Best Practices
+
+**Reproducibility:**
+- Set `seed=42` in every SFTConfig and data generation script
+- Set `torch.manual_seed(42)`, `random.seed(42)`, `numpy.random.seed(42)`
+- Log the git commit hash in run_metadata.json
+
+**Data integrity:**
+- Hash every JSONL file (SHA-256) before training, store hash in metadata
+- Hold out 50 eval prompts BEFORE data generation (first 50 templates reserved)
+- Never modify training data after a run -- create new version instead
+
+**Train/eval split:**
+- 450 training prompts + 50 eval prompts (from the 500 generated)
+- Eval split used consistently across all 3 experiments for fair comparison
+
+**Checkpoint strategy:**
+- Save every epoch (`save_strategy="epoch"`)
+- Push best checkpoint to HF Hub (not just the final one)
+- If a run crashes, resume from last checkpoint: `resume_from_checkpoint=True`
+
+**Ablation discipline:**
+- Change ONE thing per version bump (data, LR, rank, etc.)
+- Log what changed in run_metadata.json `"change_from_prev": "switched to Best-of-N data"`
 
 ---
 
@@ -770,7 +851,8 @@ tags:
   - learning-mentor
   - small-models
   - minicpm
-  - minicpm
+  - nemotron
+  - knowledge-distillation
 ---
 ```
 

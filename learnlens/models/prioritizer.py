@@ -41,9 +41,7 @@ class PrioritizerModel:
     def load(self) -> None:
         """Attach scorer LoRA adapter to shared base model."""
         if self._base_model is None:
-            raise RuntimeError(
-                "PrioritizerModel requires a shared base_model to be provided"
-            )
+            raise RuntimeError("PrioritizerModel requires a shared base_model to be provided")
 
         logger.info("Loading scorer adapter: %s", self._config.prioritizer_adapter_id)
         try:
@@ -80,9 +78,7 @@ class PrioritizerModel:
         if self._adapter_loaded:
             model.set_adapter("scorer")
 
-        goals_text = "\n".join(
-            f"- {g.goal_text} (priority {g.priority})" for g in goals
-        )
+        goals_text = "\n".join(f"- {g.goal_text} (priority {g.priority})" for g in goals)
         summary = content.body_text[:500]
 
         messages = [

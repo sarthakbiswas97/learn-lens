@@ -1079,6 +1079,7 @@ dependencies = [
     { name = "plotly" },
     { name = "pydantic" },
     { name = "sentence-transformers" },
+    { name = "spaces" },
     { name = "torch" },
     { name = "trafilatura" },
     { name = "transformers" },
@@ -1125,6 +1126,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15" },
     { name = "sentence-transformers", specifier = ">=4.1" },
+    { name = "spaces", specifier = ">=0.30" },
     { name = "torch", specifier = ">=2.7" },
     { name = "trafilatura", specifier = ">=2.0" },
     { name = "transformers", specifier = ">=5.6" },
@@ -2613,6 +2615,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/47/2c/0a5f6f8ee0d5589e48c7640213ed5175d52cf540a06725b628cc1a45d6ce/soupsieve-2.8.4.tar.gz", hash = "sha256:e121fd02e975c695e4e9e8774a5ee35d74714b59307868dcc5319ad2d9e3328e", size = 121110, upload-time = "2026-05-24T13:55:57.154Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5e/f5/0c41cb68dcae6b7de4fac4188a3a9589e21fb31df21ea3a2e888db95e6c9/soupsieve-2.8.4-py3-none-any.whl", hash = "sha256:e7e6b0769c8f51ed59acab6e994b00621096cfb1c640a7509295987388fbaf65", size = 37304, upload-time = "2026-05-24T13:55:55.406Z" },
+]
+
+[[package]]
+name = "spaces"
+version = "0.50.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "gradio" },
+    { name = "httpx" },
+    { name = "packaging" },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7f/9d/9a06c91f01ed57ac4749e00f8eaf591ed5e3c6ec7c4499ce5c6f59fbc1dc/spaces-0.50.4.tar.gz", hash = "sha256:0aaed1d041d21c35c14b5a5cee5be677ad0ea26a26a5f09c488264ab1c031753", size = 88304, upload-time = "2026-06-04T15:41:13.17Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c5/01/e02d0352836c68bd9e307c369c62800c9437d6243e64e1d8660543e50617/spaces-0.50.4-py3-none-any.whl", hash = "sha256:ad4383748b7a4219940d9ba786bb3eebbbd9cc946d21334bee1557bb20469355", size = 111340, upload-time = "2026-06-04T15:41:11.732Z" },
 ]
 
 [[package]]

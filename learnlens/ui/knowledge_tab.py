@@ -20,9 +20,7 @@ def create(db: Database, connector: ConnectorModel, config: LearnLensConfig) -> 
         refresh_btn.click(fn=lambda: _load_plot(db, connector, config), outputs=plot)
 
 
-def _load_plot(
-    db: Database, connector: ConnectorModel, config: LearnLensConfig
-) -> dict | None:
+def _load_plot(db: Database, connector: ConnectorModel, config: LearnLensConfig) -> dict | None:
     try:
         import plotly.express as px
         import umap

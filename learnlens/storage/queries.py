@@ -39,6 +39,7 @@ def _row_to_goal(row: sqlite3.Row) -> Goal:
 # Content
 # ---------------------------------------------------------------------------
 
+
 def insert_content(
     conn: sqlite3.Connection,
     url: str,
@@ -67,16 +68,12 @@ def insert_content(
 
 
 def get_content_by_id(conn: sqlite3.Connection, content_id: int) -> ContentItem | None:
-    row = conn.execute(
-        "SELECT * FROM content WHERE id = ?", (content_id,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM content WHERE id = ?", (content_id,)).fetchone()
     return _row_to_content(row) if row else None
 
 
 def get_content_by_url(conn: sqlite3.Connection, url: str) -> ContentItem | None:
-    row = conn.execute(
-        "SELECT * FROM content WHERE url = ?", (url,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM content WHERE url = ?", (url,)).fetchone()
     return _row_to_content(row) if row else None
 
 
@@ -103,6 +100,7 @@ def get_all_content(
 # ---------------------------------------------------------------------------
 # Embeddings
 # ---------------------------------------------------------------------------
+
 
 def insert_embedding(
     conn: sqlite3.Connection,
@@ -138,16 +136,16 @@ def get_all_embeddings(conn: sqlite3.Connection) -> tuple[list[int], np.ndarray]
         return [], np.array([])
     content_ids = [row["content_id"] for row in rows]
     dim_size = rows[0]["dim_size"]
-    matrix = np.stack([
-        np.frombuffer(row["vector"], dtype=np.float32).reshape(dim_size)
-        for row in rows
-    ])
+    matrix = np.stack(
+        [np.frombuffer(row["vector"], dtype=np.float32).reshape(dim_size) for row in rows]
+    )
     return content_ids, matrix
 
 
 # ---------------------------------------------------------------------------
 # Goals
 # ---------------------------------------------------------------------------
+
 
 def insert_goal(conn: sqlite3.Connection, goal_text: str, priority: int = 3) -> int:
     cursor = conn.execute(
@@ -187,6 +185,7 @@ def delete_goal(conn: sqlite3.Connection, goal_id: int) -> None:
 # ---------------------------------------------------------------------------
 # Scores
 # ---------------------------------------------------------------------------
+
 
 def insert_score(
     conn: sqlite3.Connection,
@@ -286,6 +285,7 @@ def delete_scores_for_goal(conn: sqlite3.Connection, goal_id: int) -> int:
 # Mistakes
 # ---------------------------------------------------------------------------
 
+
 def insert_mistake(
     conn: sqlite3.Connection,
     pattern: str,
@@ -344,9 +344,8 @@ def delete_mistake(conn: sqlite3.Connection, mistake_id: int) -> None:
 # Briefings
 # ---------------------------------------------------------------------------
 
-def insert_briefing(
-    conn: sqlite3.Connection, content: str, items_referenced: list[int]
-) -> int:
+
+def insert_briefing(conn: sqlite3.Connection, content: str, items_referenced: list[int]) -> int:
     cursor = conn.execute(
         "INSERT INTO briefings (content, items_referenced) VALUES (?, ?)",
         (content, json.dumps(items_referenced)),
@@ -376,9 +375,8 @@ def get_briefing_by_date(conn: sqlite3.Connection, date: datetime) -> str | None
 # Interactions
 # ---------------------------------------------------------------------------
 
-def insert_interaction(
-    conn: sqlite3.Connection, content_id: int, action: str
-) -> None:
+
+def insert_interaction(conn: sqlite3.Connection, content_id: int, action: str) -> None:
     conn.execute(
         "INSERT INTO interactions (content_id, action) VALUES (?, ?)",
         (content_id, action),
@@ -386,9 +384,7 @@ def insert_interaction(
     conn.commit()
 
 
-def get_items_without_interactions(
-    conn: sqlite3.Connection, days_threshold: int = 7
-) -> list[int]:
+def get_items_without_interactions(conn: sqlite3.Connection, days_threshold: int = 7) -> list[int]:
     rows = conn.execute(
         """
         SELECT c.id FROM content c
