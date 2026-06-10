@@ -1,3 +1,24 @@
+---
+title: LearnLens
+emoji: "🔍"
+colorFrom: blue
+colorTo: purple
+sdk: gradio
+sdk_version: "5.0"
+app_file: learnlens/app.py
+pinned: false
+license: apache-2.0
+hardware: a10g
+short_description: AI learning mentor that tells you what to focus on
+tags:
+  - learnlens
+  - learning-mentor
+  - small-models
+  - minicpm
+  - nemotron
+  - knowledge-distillation
+---
+
 # LearnLens 🔍
 
 **AI learning mentor powered by 3 small models.**
@@ -105,7 +126,7 @@ modal run training/train_mentor.py
 | **Tiny Titan** | ~2.2B total parameters (137M + 1B + 1B) |
 | **Backyard AI** | Local-first, privacy-preserving |
 | **Llama Champion** | GGUF export for llama.cpp |
-| **NVIDIA** | 550B -> 1B knowledge distillation via Nemotron Ultra |
+| **NVIDIA** | 49B -> 1B knowledge distillation via Nemotron Super |
 | **HuggingFace** | Gradio, HF Spaces, PEFT, TRL |
 
 ---
