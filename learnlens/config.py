@@ -22,25 +22,17 @@ class LearnLensConfig(BaseModel):
 
     # Model IDs
     embedding_model_id: str = "nomic-ai/nomic-embed-text-v1.5"
-    prioritizer_adapter_id: str = "sarthakbiswas/learnlens-scorer-lora"
+    prioritizer_adapter_id: str = "sarthakbiswas/learnlens-scorer-sft-v1"
     prioritizer_base_model_id: str = "openbmb/MiniCPM5-1B"
-    mentor_adapter_id: str = "sarthakbiswas/learnlens-mentor-lora"
+    mentor_adapter_id: str = "sarthakbiswas/learnlens-mentor-sft-v1"
 
     # Embedding
-    embedding_dim: int = Field(
-        default=256, description="Matryoshka dim (768, 512, 256, 128, 64)"
-    )
+    embedding_dim: int = Field(default=256, description="Matryoshka dim (768, 512, 256, 128, 64)")
 
     # Pipeline
-    max_content_length: int = Field(
-        default=4096, description="Max chars for embedding input"
-    )
-    top_k_briefing: int = Field(
-        default=10, description="Top scored items for briefing"
-    )
-    forgotten_days_threshold: int = Field(
-        default=7, description="Days before item is 'forgotten'"
-    )
+    max_content_length: int = Field(default=4096, description="Max chars for embedding input")
+    top_k_briefing: int = Field(default=10, description="Top scored items for briefing")
+    forgotten_days_threshold: int = Field(default=7, description="Days before item is 'forgotten'")
     forgotten_similarity_threshold: float = Field(
         default=0.6, description="Min cosine sim to goals"
     )
