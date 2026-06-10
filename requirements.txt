@@ -1,0 +1,14 @@
+gradio>=5.0
+transformers>=5.6
+sentence-transformers>=4.1
+torch>=2.7
+peft>=0.15
+accelerate>=1.0
+pydantic>=2.12
+trafilatura>=2.0
+beautifulsoup4>=4.13
+numpy>=2.0
+umap-learn>=0.5
+plotly>=6.0
+einops>=0.8
+spaces>=0.30
